@@ -4,13 +4,13 @@ plugins {
 }
 
 android {
-    namespace = "dev.alexis.mediagallery"
+    namespace = "dev.alexis.wirelessgallery"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "dev.alexis.mediagallery"
+        applicationId = "dev.alexis.wirelessgallery"
         minSdk = 29
         targetSdk = 36
         versionCode = 1
