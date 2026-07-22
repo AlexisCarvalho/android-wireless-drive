@@ -293,14 +293,6 @@ class GalleryViewModel(
         }
     }
 
-    fun deleteThumbnail(id: Int) {
-        viewModelScope.launch {
-            if (deleteThumbnailInternal(id)) {
-                loadMedias()
-            }
-        }
-    }
-
     fun deleteThumbnails(ids: List<Int>) {
         if (ids.isEmpty()) return
 
@@ -378,14 +370,6 @@ class GalleryViewModel(
         }
     }
 
-    fun deleteMedia(id: Int) {
-        viewModelScope.launch {
-            if (deleteMediaInternal(id)) {
-                loadMedias()
-            }
-        }
-    }
-
     fun deleteMedias(ids: List<Int>) {
         if (ids.isEmpty()) return
 
@@ -451,7 +435,21 @@ class GalleryViewModel(
                 )
 
                 if (response.isSuccessful) {
-                    loadMedias()
+                    _uiState.update { state ->
+
+                        val index = state.medias.indexOfFirst { it.id == id }
+
+                        if (index == -1) return@update state
+
+                        val newList = state.medias.toMutableList()
+
+                        newList[index] = newList[index].copy(
+                            title = title,
+                            description = description.ifBlank { null }
+                        )
+
+                        state.copy(medias = newList)
+                    }
                 } else {
                     if (handleAuthFailure(response.code())) {
                         return@launch
@@ -570,12 +568,6 @@ class GalleryViewModel(
                 )
             }
             false
-        }
-    }
-
-    fun downloadMedia(media: Media) {
-        viewModelScope.launch {
-            downloadMediaInternal(media)
         }
     }
 
