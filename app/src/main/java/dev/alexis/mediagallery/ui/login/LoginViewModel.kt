@@ -2,6 +2,7 @@ package dev.alexis.mediagallery.ui.login
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
 import dev.alexis.mediagallery.data.AuthResponse
 import dev.alexis.mediagallery.data.LoginRequest
 import dev.alexis.mediagallery.data.RegisterRequest
@@ -9,7 +10,6 @@ import dev.alexis.mediagallery.data.SavedProfile
 import dev.alexis.mediagallery.data.SavedProfileManager
 import dev.alexis.mediagallery.data.TokenManager
 import dev.alexis.mediagallery.network.ApiService
-import com.google.gson.Gson
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,7 +63,13 @@ class LoginViewModel(
     }
 
     fun selectProfile(profile: SavedProfile) {
-        _uiState.update { it.copy(code = profile.code, password = profile.password, errorMessage = null) }
+        _uiState.update {
+            it.copy(
+                code = profile.code,
+                password = profile.password,
+                errorMessage = null
+            )
+        }
     }
 
     fun removeProfile(profile: SavedProfile) {
@@ -113,7 +119,8 @@ class LoginViewModel(
                     }
 
                     if (state.isRegisterMode) {
-                        val loginResponse = apiService.login(LoginRequest(trimmedCode, trimmedPassword))
+                        val loginResponse =
+                            apiService.login(LoginRequest(trimmedCode, trimmedPassword))
                         val loginToken = loginResponse.body()?.token?.takeIf { it.isNotBlank() }
 
                         if (loginResponse.isSuccessful && !loginToken.isNullOrBlank()) {

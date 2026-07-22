@@ -6,9 +6,9 @@ import dev.alexis.mediagallery.network.ApiService
 import dev.alexis.mediagallery.network.RetrofitClient
 
 /**
- * Container manual de dependências. Uma instância única criada na
- * Application e injetada "na mão" onde for preciso -- sem Hilt/Koin
- * por enquanto, pra manter o projeto simples nesta fase.
+ * Manual dependency container. A single instance created on
+ * Application and injected "in hand" where needed -- without Hilt/Koin
+ * for now, to keep the project simple at this stage.
  */
 class AppContainer(context: Context) {
     val tokenManager: TokenManager = TokenManager(context.applicationContext)

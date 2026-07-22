@@ -3,10 +3,9 @@ package dev.alexis.mediagallery.data
 import com.google.gson.annotations.SerializedName
 
 /**
- * O backend (Go) devolve os campos com a primeira letra maiúscula
- * (ID, Title, Type...), exatamente como o dashboard.html acessa
- * (media.ID, media.Title...). @SerializedName mapeia isso para
- * propriedades Kotlin no padrão camelCase.
+ * The backend (Go) returns fields with an initial uppercase letter
+ * (ID, Title, Type...), @SerializedName maps these to Kotlin properties
+ * using camelCase.
  */
 data class Media(
     @SerializedName("ID") val id: Int,

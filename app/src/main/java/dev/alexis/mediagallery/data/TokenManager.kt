@@ -10,13 +10,9 @@ import kotlinx.coroutines.runBlocking
 private val Context.dataStore by preferencesDataStore(name = "auth_prefs")
 
 /**
- * Guarda o token em disco (DataStore) e mantém uma cópia em memória
- * para leitura síncrona -- necessária porque o AuthInterceptor do OkHttp
- * roda em código síncrono, não suspend.
- *
- * A leitura inicial via runBlocking acontece uma única vez, na criação
- * da instância (normalmente dentro de uma Application ou de um container
- * de DI simples). Não é chamada a cada requisição.
+ * Stores the token on disk (DataStore) and keeps an in-memory copy
+ * for synchronous reads -- necessary because OkHttp's AuthInterceptor
+ * runs in synchronous code, not suspendable.
  */
 class TokenManager(private val context: Context) {
 
@@ -37,7 +33,7 @@ class TokenManager(private val context: Context) {
         context.dataStore.edit { prefs -> prefs.remove(tokenKey) }
     }
 
-    /** Usado pelo AuthInterceptor, sempre chamado numa thread de rede, nunca na main. */
+    /** Used by the AuthInterceptor, always called on a network thread, never on the main thread. */
     fun getTokenSync(): String? = cachedToken
 
     fun isLoggedIn(): Boolean = cachedToken != null

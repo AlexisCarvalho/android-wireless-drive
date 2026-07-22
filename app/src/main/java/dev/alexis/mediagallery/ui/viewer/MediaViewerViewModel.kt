@@ -1,6 +1,7 @@
 package dev.alexis.mediagallery.ui.viewer
 
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.alexis.mediagallery.data.Media
@@ -14,13 +15,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import okhttp3.ResponseBody
 import java.io.File
-import androidx.core.net.toUri
 
-// ByteArray num data class deixa o compilador avisar sobre equals()/hashCode()
-// padrão (comparam por referência, não por conteúdo) -- inofensivo aqui,
-// já que não comparamos instâncias de UiState entre si.
+// ByteArray in a data class causes the compiler to warn about the default
+// equals()/hashCode() (which compare by reference, not by content) -- harmless
+// here, since we don't compare UiState instances with each other.
 data class MediaViewerUiState(
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
@@ -28,7 +27,9 @@ data class MediaViewerUiState(
     val localVideoUri: Uri? = null,
     val localAudioUri: Uri? = null,
     val imageBytes: ByteArray? = null,
-    val authToken: String? = null
+    val authToken: String? = null,
+    val canGoToPrevious: Boolean = false,
+    val canGoToNext: Boolean = false
 )
 
 class MediaViewerViewModel(
@@ -41,19 +42,31 @@ class MediaViewerViewModel(
     private val _uiState = MutableStateFlow(MediaViewerUiState())
     val uiState: StateFlow<MediaViewerUiState> = _uiState.asStateFlow()
 
+    private var currentMediaId = mediaId
+    private var availableMediaIds: List<Int> = emptyList()
+    private var currentMediaIndex = -1
+    private var currentMediaType = ""
+
     init {
         loadMedia()
     }
 
-    fun loadMedia() {
+    fun loadMedia(targetMediaId: Int? = null) {
         viewModelScope.launch {
+            val requestedMediaId = targetMediaId ?: currentMediaId
+            currentMediaId = requestedMediaId
+
             _uiState.update {
-                it.copy(isLoading = true, errorMessage = null)
+                it.copy(
+                    isLoading = true,
+                    errorMessage = null,
+                    canGoToPrevious = false,
+                    canGoToNext = false
+                )
             }
 
             try {
-                // Busca os detalhes da mídia
-                val detailResponse = apiService.getMediaDetail(mediaId)
+                val detailResponse = apiService.getMediaDetail(requestedMediaId)
                 val media = detailResponse.body()
 
                 if (!detailResponse.isSuccessful || media == null) {
@@ -66,7 +79,31 @@ class MediaViewerViewModel(
                     return@launch
                 }
 
-                // Token JWT para o ExoPlayer
+                val mediasResponse = apiService.getMedias()
+                val medias = mediasResponse.body()?.medias.orEmpty()
+
+                when (media.type) {
+                    "video" -> {
+                        currentMediaType = "video"
+                    }
+
+                    "audio" -> {
+                        currentMediaType = "audio"
+                    }
+                }
+
+                availableMediaIds = if (currentMediaType !== "") {
+                    medias.filter { media -> media.type == currentMediaType }.map { it.id }
+
+                } else {
+                    medias.map { it.id }
+                }
+                currentMediaIndex = availableMediaIds.indexOf(requestedMediaId)
+
+                val canGoToPrevious =
+                    currentMediaIndex >= 0 && currentMediaIndex < availableMediaIds.lastIndex
+                val canGoToNext = currentMediaIndex > 0
+
                 val token = tokenManager.getTokenSync()
 
                 when (media.type) {
@@ -78,7 +115,9 @@ class MediaViewerViewModel(
                                 isLoading = false,
                                 media = media,
                                 localVideoUri = streamUri,
-                                authToken = token
+                                authToken = token,
+                                canGoToPrevious = canGoToPrevious,
+                                canGoToNext = canGoToNext
                             )
                         }
                     }
@@ -91,14 +130,16 @@ class MediaViewerViewModel(
                                 isLoading = false,
                                 media = media,
                                 localAudioUri = streamUri,
-                                authToken = token
+                                authToken = token,
+                                canGoToPrevious = canGoToPrevious,
+                                canGoToNext = canGoToNext
                             )
                         }
                     }
 
                     else -> {
-                        // Para imagens ainda baixamos o conteúdo em memória
-                        val fileResponse = apiService.getMediaFile(mediaId)
+                        // The image is downloaded entirely into memory.
+                        val fileResponse = apiService.getMediaFile(requestedMediaId)
                         val body = fileResponse.body()
 
                         if (!fileResponse.isSuccessful || body == null) {
@@ -119,7 +160,9 @@ class MediaViewerViewModel(
                             it.copy(
                                 isLoading = false,
                                 media = media,
-                                imageBytes = bytes
+                                imageBytes = bytes,
+                                canGoToPrevious = canGoToPrevious,
+                                canGoToNext = canGoToNext
                             )
                         }
                     }
@@ -136,6 +179,18 @@ class MediaViewerViewModel(
         }
     }
 
+    fun goToPreviousMedia() {
+        if (currentMediaIndex < 0) return
+        val previousMediaId = availableMediaIds.getOrNull(currentMediaIndex + 1)
+        previousMediaId?.let { loadMedia(it) }
+    }
+
+    fun goToNextMedia() {
+        if (currentMediaIndex < 0) return
+        val nextMediaId = availableMediaIds.getOrNull(currentMediaIndex - 1)
+        nextMediaId?.let { loadMedia(it) }
+    }
+
     private suspend fun resolvePlaybackUri(mediaId: Int): Uri {
         val streamResponse = runCatching {
             apiService.getMediaStreamUrl(mediaId)
@@ -149,17 +204,5 @@ class MediaViewerViewModel(
             ?: "/api/media/$mediaId/file"
 
         return "${ApiConfig.BASE_URL}$endpoint".toUri()
-    }
-
-    private fun writeToCacheFile(body: ResponseBody, media: Media): File {
-        val extension = media.filename
-            ?.substringAfterLast('.', missingDelimiterValue = "")
-            ?.takeIf { it.isNotBlank() }
-            ?: "mp4"
-        val file = File(cacheDir, "media_${media.id}.$extension")
-        body.byteStream().use { input ->
-            file.outputStream().use { output -> input.copyTo(output) }
-        }
-        return file
     }
 }

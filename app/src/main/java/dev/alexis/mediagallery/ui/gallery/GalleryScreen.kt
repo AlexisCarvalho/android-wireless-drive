@@ -1,5 +1,6 @@
 package dev.alexis.mediagallery.ui.gallery
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -24,12 +25,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.ImageNotSupported
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Videocam
@@ -82,6 +88,9 @@ fun GalleryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
+    val isSelectionMode = uiState.selectedIds.isNotEmpty()
+    val selectedMedias = uiState.medias.filter { it.id in uiState.selectedIds }
+
     val focusRequester = remember {
         FocusRequester()
     }
@@ -89,10 +98,6 @@ fun GalleryScreen(
 
     var showListView by rememberSaveable {
         mutableStateOf(false)
-    }
-
-    var selectedMedia by remember {
-        mutableStateOf<Media?>(null)
     }
 
     var isSearching by remember {
@@ -103,7 +108,7 @@ fun GalleryScreen(
         mutableStateOf("")
     }
 
-    var showContextMenu by remember {
+    var showSelectionMenu by remember {
         mutableStateOf(false)
     }
 
@@ -126,6 +131,10 @@ fun GalleryScreen(
         mutableStateOf("")
     }
 
+    BackHandler(enabled = isSelectionMode) {
+        viewModel.clearSelection()
+    }
+
     LaunchedEffect(isSearching) {
         if (isSearching) {
             focusRequester.requestFocus()
@@ -133,9 +142,6 @@ fun GalleryScreen(
         }
     }
 
-    // Dispara toda vez que esta composable entra em composição de novo --
-    // inclusive ao voltar da tela de upload, então os itens recém-enviados
-    // já aparecem sem precisar de um botão de refresh manual.
     LaunchedEffect(Unit) {
         viewModel.loadMedias()
     }
@@ -163,122 +169,204 @@ fun GalleryScreen(
             TopAppBar(
                 title = {
 
-                    if (showListView && isSearching) {
+                    when {
+                        isSelectionMode -> {
+                            val count = uiState.selectedIds.size
+                            Text(if (count == 1) "1 selecionada" else "$count selecionadas")
+                        }
 
-                        OutlinedTextField(
-                            value = searchText,
-                            onValueChange = { searchText = it },
-                            placeholder = { Text("Pesquisar...") },
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(focusRequester)
-                        )
+                        showListView && isSearching -> {
+                            OutlinedTextField(
+                                value = searchText,
+                                onValueChange = { searchText = it },
+                                placeholder = { Text("Pesquisar...") },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester)
+                            )
+                        }
 
-                    } else {
-
-                        Text("Mídias")
-
+                        else -> {
+                            Text("Mídias")
+                        }
                     }
 
                 },
+                navigationIcon = {
+                    if (isSelectionMode) {
+                        IconButton(onClick = { viewModel.clearSelection() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancelar seleção")
+                        }
+                    }
+                },
                 actions = {
-                    if (showListView) {
+                    if (isSelectionMode) {
+
+                        val batchProgress = uiState.batchProgress
+
+                        if (batchProgress != null) {
+
+                            Box(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                BatchProgressIndicator(
+                                    progress = batchProgress,
+                                    icon = when (batchProgress.type) {
+                                        BatchOperationType.DOWNLOAD -> Icons.Default.Download
+                                        BatchOperationType.GENERATE_THUMBNAIL -> Icons.Default.Refresh
+                                        BatchOperationType.DELETE_THUMBNAIL -> Icons.Default.ImageNotSupported
+                                        BatchOperationType.DELETE_MEDIA -> Icons.Default.Delete
+                                    }
+                                )
+                            }
+
+                        } else {
+
+                            IconButton(
+                                onClick = { viewModel.downloadMedias(selectedMedias) }
+                            ) {
+                                Icon(
+                                    Icons.Default.Download,
+                                    contentDescription = "Baixar selecionadas"
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { showDeleteMediaDialog = true }
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Excluir mídias")
+                            }
+
+                            Box {
+                                IconButton(onClick = { showSelectionMenu = true }) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = "Mais opções")
+                                }
+
+                                DropdownMenu(
+                                    expanded = showSelectionMenu,
+                                    onDismissRequest = { showSelectionMenu = false }
+                                ) {
+
+                                    DropdownMenuItem(
+                                        text = { Text("Gerar thumbnail") },
+                                        onClick = {
+                                            viewModel.generateThumbnails(uiState.selectedIds.toList())
+                                            showSelectionMenu = false
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("Deletar thumbnail") },
+                                        onClick = {
+                                            showDeleteThumbnailDialog = true
+                                            showSelectionMenu = false
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("Editar título/descrição") },
+                                        enabled = uiState.selectedIds.size == 1,
+                                        onClick = {
+                                            selectedMedias.singleOrNull()?.let { media ->
+                                                editingTitle = media.title
+                                                editingDescription = media.description.orEmpty()
+                                            }
+                                            showEditMediaDialog = true
+                                            showSelectionMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                    } else {
+
+                        if (showListView) {
+
+                            IconButton(
+                                onClick = {
+
+                                    if (isSearching) {
+                                        isSearching = false
+                                        searchText = ""
+                                        keyboardController?.hide()
+                                    } else {
+                                        isSearching = true
+                                    }
+
+                                }
+                            ) {
+                                Icon(
+                                    imageVector =
+                                        if (isSearching)
+                                            Icons.Default.Close
+                                        else
+                                            Icons.Default.Search,
+                                    contentDescription = "Pesquisar",
+                                    tint = if (uiState.batchProgress != null) MaterialTheme.colorScheme.primary.copy(
+                                        alpha = 0.6f
+                                    ) else MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                        } else {
+
+                            IconButton(
+                                onClick = { viewModel.generateMissingThumbnails() },
+                                enabled = uiState.batchProgress == null
+                            ) {
+                                if (uiState.batchProgress?.type !== null) {
+
+                                    BatchProgressIndicator(
+                                        progress = uiState.batchProgress!!,
+                                        icon = Icons.Default.Refresh
+                                    )
+
+                                } else {
+
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Gerar thumbnails",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                        }
 
                         IconButton(
                             onClick = {
 
-                                if (isSearching) {
-                                    isSearching = false
-                                    searchText = ""
+                                showListView = !showListView
+
+                                if (!showListView) {
+                                    //isSearching = false
+                                    //searchText = ""
                                     keyboardController?.hide()
-                                } else {
-                                    isSearching = true
                                 }
 
                             }
                         ) {
                             Icon(
-                                imageVector =
-                                    if (isSearching)
-                                        Icons.Default.Close
-                                    else
-                                        Icons.Default.Search,
-                                contentDescription = "Pesquisar",
-                                tint = if (uiState.isGeneratingThumbnails) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.primary
+                                imageVector = if (showListView) Icons.Filled.GridView else Icons.Filled.List,
+                                contentDescription = if (showListView) "Modo grade" else "Modo lista"
                             )
                         }
 
-                    } else {
-
-                        IconButton(
-                            onClick = { viewModel.generateMissingThumbnails() },
-                            enabled = !uiState.isGeneratingThumbnails
-                        ) {
-                            if (uiState.isGeneratingThumbnails) {
-
-                                val progress =
-                                    uiState.generatedThumbnails.toFloat() /
-                                            uiState.totalThumbnailsToGenerate.coerceAtLeast(1)
-
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-
-                                    CircularProgressIndicator(
-                                        progress = { progress },
-                                        modifier = Modifier.fillMaxSize(),
-                                        strokeWidth = 2.dp
-                                    )
-
-                                    Text(
-                                        text = "${uiState.totalThumbnailsToGenerate - uiState.generatedThumbnails}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontSize = 12.sp
-                                    )
-                                }
-
-                            } else {
-
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Gerar thumbnails",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                        TextButton(onClick = onLogoutClick) {
+                            Text("Sair")
                         }
-
-                    }
-
-                    IconButton(
-                        onClick = {
-
-                            showListView = !showListView
-
-                            if (!showListView) {
-                                //isSearching = false
-                                //searchText = ""
-                                keyboardController?.hide()
-                            }
-
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (showListView) Icons.Filled.GridView else Icons.Filled.List,
-                            contentDescription = if (showListView) "Modo grade" else "Modo lista"
-                        )
-                    }
-
-                    TextButton(onClick = onLogoutClick) {
-                        Text("Sair")
                     }
                 }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onUploadClick) {
-                Icon(Icons.Filled.Add, contentDescription = "Enviar arquivos")
+            if (!isSelectionMode) {
+                FloatingActionButton(onClick = onUploadClick) {
+                    Icon(Icons.Filled.Add, contentDescription = "Enviar arquivos")
+                }
             }
         }
     ) { innerPadding ->
@@ -297,7 +385,10 @@ fun GalleryScreen(
                             .padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(text = uiState.errorMessage.orEmpty(), color = MaterialTheme.colorScheme.error)
+                        Text(
+                            text = uiState.errorMessage.orEmpty(),
+                            color = MaterialTheme.colorScheme.error
+                        )
                         Button(onClick = { viewModel.loadMedias() }) { Text("Tentar novamente") }
                     }
                 }
@@ -317,10 +408,21 @@ fun GalleryScreen(
                                 MediaListItem(
                                     media = media,
                                     downloadProgress = uiState.downloadingMedia[media.id],
-                                    onClick = { onMediaClick(media) },
+                                    isSelectionMode = isSelectionMode,
+                                    isSelected = media.id in uiState.selectedIds,
+                                    onClick = {
+                                        if (isSelectionMode) {
+                                            viewModel.toggleSelection(media.id)
+                                        } else {
+                                            onMediaClick(media)
+                                        }
+                                    },
                                     onLongClick = {
-                                        selectedMedia = media
-                                        showContextMenu = true
+                                        if (isSelectionMode) {
+                                            viewModel.toggleSelection(media.id)
+                                        } else {
+                                            viewModel.startSelection(media.id)
+                                        }
                                     }
                                 )
                             }
@@ -335,73 +437,27 @@ fun GalleryScreen(
                                     media = media,
                                     downloadProgress = uiState.downloadingMedia[media.id],
                                     isGeneratingThumbnail = uiState.generatingThumbnail[media.id],
-                                    onClick = { onMediaClick(media) },
+                                    isSelectionMode = isSelectionMode,
+                                    isSelected = media.id in uiState.selectedIds,
+                                    onClick = {
+                                        if (isSelectionMode) {
+                                            viewModel.toggleSelection(media.id)
+                                        } else {
+                                            onMediaClick(media)
+                                        }
+                                    },
                                     onLongClick = {
-                                        selectedMedia = media
-                                        showContextMenu = true
+                                        if (isSelectionMode) {
+                                            viewModel.toggleSelection(media.id)
+                                        } else {
+                                            viewModel.startSelection(media.id)
+                                        }
                                     }
                                 )
                             }
                         }
                     }
                 }
-            }
-            DropdownMenu(
-                expanded = showContextMenu,
-                onDismissRequest = {
-                    showContextMenu = false
-                }
-            ) {
-
-                DropdownMenuItem(
-                    text = { Text("Baixar") },
-                    onClick = {
-                        selectedMedia?.let {
-                            viewModel.downloadMedia(it)
-                        }
-
-                        showContextMenu = false
-                    }
-                )
-
-                DropdownMenuItem(
-                    text = { Text("Gerar thumbnail") },
-                    onClick = {
-                        selectedMedia?.let {
-                            viewModel.generateThumbnail(it.id)
-                        }
-
-                        showContextMenu = false
-                    }
-                )
-
-                DropdownMenuItem(
-                    text = { Text("Editar título/descrição") },
-                    onClick = {
-                        selectedMedia?.let { media ->
-                            editingTitle = media.title.orEmpty()
-                            editingDescription = media.description.orEmpty()
-                        }
-                        showEditMediaDialog = true
-                        showContextMenu = false
-                    }
-                )
-
-                DropdownMenuItem(
-                    text = { Text("Deletar thumbnail") },
-                    onClick = {
-                        showDeleteThumbnailDialog = true
-                        showContextMenu = false
-                    }
-                )
-
-                DropdownMenuItem(
-                    text = { Text("Deletar mídia") },
-                    onClick = {
-                        showDeleteMediaDialog = true
-                        showContextMenu = false
-                    }
-                )
             }
 
             if (showEditMediaDialog) {
@@ -432,7 +488,7 @@ fun GalleryScreen(
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                selectedMedia?.let { media ->
+                                selectedMedias.singleOrNull()?.let { media ->
                                     viewModel.updateMedia(
                                         id = media.id,
                                         title = editingTitle.trim(),
@@ -440,6 +496,7 @@ fun GalleryScreen(
                                     )
                                 }
                                 showEditMediaDialog = false
+                                viewModel.clearSelection()
                             }
                         ) {
                             Text("Salvar")
@@ -455,28 +512,31 @@ fun GalleryScreen(
 
             if (showDeleteMediaDialog) {
 
+                val count = selectedMedias.size
+
                 AlertDialog(
                     onDismissRequest = {
                         showDeleteMediaDialog = false
                     },
 
                     title = {
-                        Text("Excluir mídia")
+                        Text(if (count == 1) "Excluir mídia" else "Excluir mídias")
                     },
 
                     text = {
-                        Text("Tem certeza que deseja excluir esta mídia?")
+                        Text(
+                            if (count == 1)
+                                "Tem certeza que deseja excluir esta mídia?"
+                            else
+                                "Tem certeza que deseja excluir estas $count mídias?"
+                        )
                     },
 
                     confirmButton = {
 
                         TextButton(
                             onClick = {
-
-                                selectedMedia?.let {
-                                    viewModel.deleteMedia(it.id)
-                                }
-
+                                viewModel.deleteMedias(uiState.selectedIds.toList())
                                 showDeleteMediaDialog = false
                             }
                         ) {
@@ -502,28 +562,31 @@ fun GalleryScreen(
             }
             if (showDeleteThumbnailDialog) {
 
+                val count = selectedMedias.size
+
                 AlertDialog(
                     onDismissRequest = {
                         showDeleteThumbnailDialog = false
                     },
 
                     title = {
-                        Text("Excluir thumbnail")
+                        Text(if (count == 1) "Excluir thumbnail" else "Excluir thumbnails")
                     },
 
                     text = {
-                        Text("Deseja remover o thumbnail desta mídia?")
+                        Text(
+                            if (count == 1)
+                                "Deseja remover o thumbnail desta mídia?"
+                            else
+                                "Deseja remover o thumbnail destas $count mídias?"
+                        )
                     },
 
                     confirmButton = {
 
                         TextButton(
                             onClick = {
-
-                                selectedMedia?.let {
-                                    viewModel.deleteThumbnail(it.id)
-                                }
-
+                                viewModel.deleteThumbnails(uiState.selectedIds.toList())
                                 showDeleteThumbnailDialog = false
                             }
                         ) {
@@ -551,11 +614,51 @@ fun GalleryScreen(
     }
 }
 
+@Composable
+private fun BatchProgressIndicator(
+    progress: BatchProgress,
+    icon: ImageVector
+) {
+    val fraction = if (progress.total > 0) {
+        progress.completed.toFloat() / progress.total
+    } else {
+        0f
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(28.dp)
+    ) {
+
+        CircularProgressIndicator(
+            progress = { fraction },
+            modifier = Modifier.fillMaxSize(),
+            strokeWidth = 2.dp
+        )
+
+        if (progress.total > 0) {
+            Text(
+                text = "${progress.total - progress.completed}",
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 12.sp
+            )
+        } else {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MediaListItem(
     media: Media,
     downloadProgress: Float?,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -564,7 +667,12 @@ private fun MediaListItem(
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(
+                if (isSelected)
+                    MaterialTheme.colorScheme.primaryContainer
+                else
+                    MaterialTheme.colorScheme.surfaceVariant
+            )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
@@ -574,12 +682,21 @@ private fun MediaListItem(
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = iconForType(media.type),
-                contentDescription = media.type,
-                tint = iconTintForType(media.type),
-                modifier = Modifier.padding(end = 10.dp)
-            )
+            if (isSelectionMode) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                    contentDescription = if (isSelected) "Selecionada" else "Não selecionada",
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 10.dp)
+                )
+            } else {
+                Icon(
+                    imageVector = iconForType(media.type),
+                    contentDescription = media.type,
+                    tint = iconTintForType(media.type),
+                    modifier = Modifier.padding(end = 10.dp)
+                )
+            }
 
             Column(
                 modifier = Modifier.weight(1f)
@@ -625,6 +742,8 @@ private fun MediaGridItem(
     media: Media,
     downloadProgress: Float?,
     isGeneratingThumbnail: Boolean?,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -639,7 +758,6 @@ private fun MediaGridItem(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Thumbnail ou ícone
         if (!media.thumbnail.isNullOrBlank() &&
             (media.type == "image" || media.type == "video")
         ) {
@@ -665,10 +783,8 @@ private fun MediaGridItem(
             }
         }
 
-        // Overlay de download
         downloadProgress?.let { progress ->
 
-            // Ícone de download
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -687,7 +803,6 @@ private fun MediaGridItem(
                 )
             }
 
-            // Barra de progresso
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -702,10 +817,8 @@ private fun MediaGridItem(
             }
         }
 
-        // Overlay de geração de thumbnail
         if (isGeneratingThumbnail == true) {
 
-            // Ícone
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -724,7 +837,6 @@ private fun MediaGridItem(
                 )
             }
 
-            // Barra indeterminada
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -734,6 +846,35 @@ private fun MediaGridItem(
             ) {
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        if (isSelectionMode) {
+
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .background(
+                        Color.Black.copy(alpha = 0.6f),
+                        CircleShape
+                    )
+                    .padding(4.dp)
+            ) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                    contentDescription = if (isSelected) "Selecionada" else "Não selecionada",
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }

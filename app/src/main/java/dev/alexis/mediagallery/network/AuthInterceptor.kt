@@ -5,16 +5,18 @@ import okhttp3.Interceptor
 import okhttp3.Response
 
 /**
- * Adiciona "Authorization: Bearer <token>" em toda requisição feita
- * através deste cliente Retrofit -- equivalente ao authFetch() do site.
+ * Adds "Authorization: Bearer <token>" to every request made through
+ * this Retrofit client.
  *
- * Login e registro simplesmente não têm token ainda nesse momento,
- * então o header não é adicionado (o backend não deveria exigi-lo
- * nessas rotas mesmo).
+ * Login and registration simply don't have a token yet at this point,
+ * so the header isn't added (the backend shouldn't require it on these
+ * routes anyway).
  *
- * Importante: as thumbnails (/thumbs/...) são carregadas pelo Coil
- * SEM passar por este cliente autenticado, porque a rota é pública --
- * ver RetrofitClient.kt.
+ * Important: thumbnails (/thumbs/...) are loaded by Coil WITHOUT going
+ * through this authenticated client, because the route is public --
+ * see RetrofitClient.kt. The actual image filename used to fetch the
+ * thumb is a UUID that's only available after an authenticated request,
+ * so that's not a problem in the current scope of testing.
  */
 class AuthInterceptor(private val tokenManager: TokenManager) : Interceptor {
 

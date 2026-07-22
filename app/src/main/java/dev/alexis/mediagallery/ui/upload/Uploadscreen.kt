@@ -44,10 +44,9 @@ fun UploadScreen(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris: List<Uri> -> viewModel.onFilesPicked(uris) }
 
-    // Mesmo comportamento do site: só volta sozinho quando TODOS deram certo.
-    // Se algum falhou, fica na tela pra deixar reenviar.
     LaunchedEffect(uiState.allDone) {
-        val allSucceeded = uiState.items.isNotEmpty() && uiState.items.all { it.status is UploadStatus.Success }
+        val allSucceeded =
+            uiState.items.isNotEmpty() && uiState.items.all { it.status is UploadStatus.Success }
         if (uiState.allDone && allSucceeded) {
             delay(1200)
             onUploadFinished()

@@ -5,9 +5,9 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
 import dev.alexis.mediagallery.data.GenericResponse
 import dev.alexis.mediagallery.network.ApiService
-import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,13 +15,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.toRequestBody
-import okio.source
-import okio.BufferedSink
 import okhttp3.RequestBody
-import okhttp3.MediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
+import okio.source
 import java.io.IOException
 
 sealed class UploadStatus {
@@ -86,10 +86,6 @@ class UploadViewModel(
         _uiState.update { it.copy(items = it.items.filterNot { item -> item.uri == uri }) }
     }
 
-    // Sequencial, ao contrário do site (que sobe todos em paralelo com um
-    // pequeno stagger) -- mais simples de acompanhar e mais gentil com um
-    // servidor local. Reenviar só tenta de novo quem ainda não teve sucesso,
-    // então dá pra chamar de novo depois de uma falha sem duplicar upload.
     fun uploadAll() {
         val state = _uiState.value
         if (state.items.isEmpty() || state.isUploading) return

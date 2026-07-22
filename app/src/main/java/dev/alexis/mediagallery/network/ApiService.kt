@@ -10,7 +10,6 @@ import dev.alexis.mediagallery.data.MissingThumbnailsResponse
 import dev.alexis.mediagallery.data.RegisterRequest
 import dev.alexis.mediagallery.data.StreamUrlResponse
 import dev.alexis.mediagallery.data.UpdateMediaRequest
-import dev.alexis.mediagallery.ui.gallery.GalleryViewModel
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
@@ -23,7 +22,9 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Path
+import retrofit2.http.Query
 import retrofit2.http.Streaming
+import retrofit2.http.Url
 
 interface ApiService {
 
@@ -36,20 +37,22 @@ interface ApiService {
     @GET("/api/media/owner")
     suspend fun getMedias(): Response<MediaListResponse>
 
-    // Metadados de um item só (Title, CreatedAt, Type, MimeType...) -- mesma
-    // rota que o video.html chama antes de baixar o arquivo em si.
     @GET("/api/media/{id}")
     suspend fun getMediaDetail(@Path("id") id: Int): Response<Media>
 
-    // Nova rota usada pelo site para devolver uma URL temporária de streaming.
-    // Mantemos a rota antiga /file disponível para download.
     @GET("/api/media/{id}/stream-url")
-    suspend fun getMediaStreamUrl(@Path("id") id: Int): Response<StreamUrlResponse>
+    suspend fun getMediaStreamUrl(
+        @Path("id") id: Int,
+        @Query("type") type: String? = null
+    ): Response<StreamUrlResponse>
 
-    // @Streaming evita que o OkHttp carregue o arquivo inteiro na memória
-    // antes de entregar a resposta -- importante para vídeos grandes.
-    // No passo do visualizador em tela cheia usamos isso pra tocar
-    // o vídeo sem duplicar o "baixa tudo, depois toca" que o site faz.
+    // Used for both streaming (type omitted/"stream") and download
+    // (type="download"): the URL is already ready (with a short-lived token)
+    // from getMediaStreamUrl, so we just stream its bytes.
+    @Streaming
+    @GET
+    suspend fun downloadFromUrl(@Url url: String): Response<ResponseBody>
+
     @Streaming
     @GET("/api/media/{id}/file")
     suspend fun getMediaFile(@Path("id") id: Int): Response<ResponseBody>
@@ -72,8 +75,6 @@ interface ApiService {
     @GET("/api/media/owner/missing-thumbnails")
     suspend fun getMissingThumbnails(): Response<MissingThumbnailsResponse>
 
-    // title/description são campos de texto separados no multipart, não JSON --
-    // é assim que o upload.html monta o FormData.
     @Multipart
     @POST("/api/media/upload")
     suspend fun uploadMedia(

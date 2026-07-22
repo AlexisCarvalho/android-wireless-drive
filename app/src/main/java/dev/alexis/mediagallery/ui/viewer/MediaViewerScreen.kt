@@ -8,7 +8,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -27,36 +25,46 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward5
 import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowLeft
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.filled.PauseCircleFilled
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircleFilled
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOn
 import androidx.compose.material.icons.filled.Replay5
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -64,17 +72,7 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
-import androidx.compose.material3.Slider
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.media3.common.Player
 import kotlin.math.max
-import kotlinx.coroutines.delay
 import kotlin.math.min
 
 @Composable
@@ -93,6 +91,7 @@ fun MediaViewerScreen(
     var controlsVersion by remember {
         mutableIntStateOf(0)
     }
+    var autoplayEnabled by remember { mutableStateOf(false) }
 
     LaunchedEffect(showHeader, controlsVersion) {
 
@@ -250,6 +249,32 @@ fun MediaViewerScreen(
                 title = uiState.media?.title.orEmpty(),
                 visible = showHeader,
                 onBackClick = onBackClick,
+                canGoToPrevious = uiState.canGoToPrevious,
+                canGoToNext = uiState.canGoToNext,
+                autoplayEnabled = autoplayEnabled,
+                onToggleAutoplay = { autoplayEnabled = !autoplayEnabled },
+                onPreviousClick = { viewModel.goToPreviousMedia() },
+                onNextClick = { viewModel.goToNextMedia() },
+                onUserInteraction = {
+                    controlsVersion++
+                }
+            )
+
+        }
+
+        audioPlayer?.let {
+
+            PlayerOverlay(
+                player = it,
+                title = uiState.media?.title.orEmpty(),
+                visible = showHeader,
+                onBackClick = onBackClick,
+                canGoToPrevious = uiState.canGoToPrevious,
+                canGoToNext = uiState.canGoToNext,
+                autoplayEnabled = autoplayEnabled,
+                onToggleAutoplay = { autoplayEnabled = !autoplayEnabled },
+                onPreviousClick = { viewModel.goToPreviousMedia() },
+                onNextClick = { viewModel.goToNextMedia() },
                 onUserInteraction = {
                     controlsVersion++
                 }
@@ -263,20 +288,6 @@ fun MediaViewerScreen(
                 title = uiState.media?.title.orEmpty(),
                 visible = showHeader,
                 onBackClick = onBackClick
-            )
-
-        }
-
-        audioPlayer?.let {
-
-            PlayerOverlay(
-                player = it,
-                title = uiState.media?.title.orEmpty(),
-                visible = showHeader,
-                onBackClick = onBackClick,
-                onUserInteraction = {
-                    controlsVersion++
-                }
             )
 
         }
@@ -357,6 +368,12 @@ private fun PlayerOverlay(
     title: String,
     visible: Boolean,
     onBackClick: () -> Unit,
+    canGoToPrevious: Boolean,
+    canGoToNext: Boolean,
+    autoplayEnabled: Boolean,
+    onToggleAutoplay: () -> Unit,
+    onPreviousClick: () -> Unit,
+    onNextClick: () -> Unit,
     onUserInteraction: () -> Unit
 ) {
 
@@ -424,6 +441,19 @@ private fun PlayerOverlay(
 
     }
 
+    LaunchedEffect(player, autoplayEnabled, canGoToNext) {
+        if (!autoplayEnabled || !canGoToNext) return@LaunchedEffect
+
+        while (true) {
+            if (player.playbackState == Player.STATE_ENDED) {
+                onUserInteraction()
+                onNextClick()
+                break
+            }
+            delay(250)
+        }
+    }
+
     Box(
         Modifier.fillMaxSize()
     ) {
@@ -461,8 +491,24 @@ private fun PlayerOverlay(
                 Text(
                     text = title,
                     color = Color.White,
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+
+                IconButton(
+                    onClick = {
+                        onUserInteraction()
+                        onToggleAutoplay()
+                    }
+                ) {
+                    Icon(
+                        imageVector = if (autoplayEnabled) Icons.Default.RepeatOn else Icons.Default.Repeat,
+                        contentDescription = null,
+                        tint = if (autoplayEnabled) Color(0xFF7CFFB2) else Color.White
+                    )
+                }
 
             }
         }
@@ -478,6 +524,20 @@ private fun PlayerOverlay(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
+                IconButton(
+                    onClick = {
+                        onUserInteraction()
+                        onPreviousClick()
+                    },
+                    enabled = canGoToPrevious
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardDoubleArrowLeft,
+                        contentDescription = "Mídia anterior",
+                        tint = if (canGoToPrevious) Color.White else Color.White.copy(alpha = 0.35f),
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
 
                 IconButton(
                     onClick = {
@@ -548,6 +608,21 @@ private fun PlayerOverlay(
                         modifier = Modifier.size(36.dp)
                     )
 
+                }
+
+                IconButton(
+                    onClick = {
+                        onUserInteraction()
+                        onNextClick()
+                    },
+                    enabled = canGoToNext
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardDoubleArrowRight,
+                        contentDescription = "Próxima mídia",
+                        tint = if (canGoToNext) Color.White else Color.White.copy(alpha = 0.35f),
+                        modifier = Modifier.size(36.dp)
+                    )
                 }
             }
         }
@@ -627,31 +702,6 @@ private fun PlayerOverlay(
 
 @Composable
 private fun VideoPlayer(
-    player: ExoPlayer,
-    modifier: Modifier = Modifier
-) {
-
-    val context = LocalContext.current
-
-    AndroidView(
-        modifier = modifier,
-        factory = {
-
-            PlayerView(context).apply {
-
-                this.player = player
-
-                useController = false
-
-            }
-
-        }
-    )
-
-}
-
-@Composable
-private fun AudioPlayer(
     player: ExoPlayer,
     modifier: Modifier = Modifier
 ) {
