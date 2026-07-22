@@ -55,7 +55,8 @@ data class GalleryUiState(
     val downloadingMedia: Map<Int, Float> = emptyMap(),
     val generatingThumbnail: Map<Int, Boolean> = emptyMap(),
     val selectedIds: Set<Int> = emptySet(),
-    val batchProgress: BatchProgress? = null
+    val batchProgress: BatchProgress? = null,
+    val isRefreshing: Boolean = false
 )
 
 class GalleryViewModel(
@@ -627,29 +628,26 @@ class GalleryViewModel(
     }
 
     private suspend fun loadMediasInternal() {
-        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        val isFirstLoad = _uiState.value.medias.isEmpty()
+        _uiState.update { it.copy(isLoading = isFirstLoad, isRefreshing = !isFirstLoad, errorMessage = null) }
         try {
             val response = apiService.getMedias()
             if (response.isSuccessful) {
-                // CreatedAt comes in RFC3339 format (for example, "2024-01-15T10:30:00Z"),
-                // the same format produced by Go's encoding/json for time.Time -- lexicographic
-                // string sorting already works correctly in this format, without needing to
-                // parse it into a Date first.
                 val medias = response.body()?.medias.orEmpty()
                     .sortedByDescending { it.createdAt }
-                _uiState.update { it.copy(medias = medias, isLoading = false) }
+                _uiState.update { it.copy(medias = medias, isLoading = false, isRefreshing = false) }
             } else {
                 if (handleAuthFailure(response.code())) {
-                    _uiState.update { it.copy(isLoading = false) }
+                    _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
                     return
                 }
                 _uiState.update {
-                    it.copy(isLoading = false, errorMessage = "Erro ao carregar mídias")
+                    it.copy(isLoading = false, isRefreshing = false, errorMessage = "Erro ao carregar mídias")
                 }
             }
         } catch (e: Exception) {
             _uiState.update {
-                it.copy(isLoading = false, errorMessage = "Erro ao conectar: ${e.message}")
+                it.copy(isLoading = false, isRefreshing = false, errorMessage = "Erro ao conectar: ${e.message}")
             }
         }
     }

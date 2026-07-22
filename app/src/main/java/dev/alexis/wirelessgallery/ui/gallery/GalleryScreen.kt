@@ -372,13 +372,13 @@ fun GalleryScreen(
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             when {
-                uiState.isLoading -> {
+                uiState.isLoading && uiState.medias.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                 }
 
-                uiState.errorMessage != null -> {
+                uiState.errorMessage != null && uiState.medias.isEmpty() -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -400,60 +400,65 @@ fun GalleryScreen(
                 }
 
                 else -> {
-                    if (showListView) {
-                        LazyColumn(
-                            contentPadding = PaddingValues(4.dp)
-                        ) {
-                            items(filteredMedias, key = { it.id }) { media ->
-                                MediaListItem(
-                                    media = media,
-                                    downloadProgress = uiState.downloadingMedia[media.id],
-                                    isSelectionMode = isSelectionMode,
-                                    isSelected = media.id in uiState.selectedIds,
-                                    onClick = {
-                                        if (isSelectionMode) {
-                                            viewModel.toggleSelection(media.id)
-                                        } else {
-                                            onMediaClick(media)
-                                        }
-                                    },
-                                    onLongClick = {
-                                        if (isSelectionMode) {
-                                            viewModel.toggleSelection(media.id)
-                                        } else {
-                                            viewModel.startSelection(media.id)
-                                        }
-                                    }
-                                )
-                            }
+                    Column {
+                        if (uiState.isRefreshing) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         }
-                    } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 110.dp),
-                            contentPadding = PaddingValues(2.dp)
-                        ) {
-                            items(uiState.medias, key = { it.id }) { media ->
-                                MediaGridItem(
-                                    media = media,
-                                    downloadProgress = uiState.downloadingMedia[media.id],
-                                    isGeneratingThumbnail = uiState.generatingThumbnail[media.id],
-                                    isSelectionMode = isSelectionMode,
-                                    isSelected = media.id in uiState.selectedIds,
-                                    onClick = {
-                                        if (isSelectionMode) {
-                                            viewModel.toggleSelection(media.id)
-                                        } else {
-                                            onMediaClick(media)
+                        if (showListView) {
+                            LazyColumn(
+                                contentPadding = PaddingValues(4.dp)
+                            ) {
+                                items(filteredMedias, key = { it.id }) { media ->
+                                    MediaListItem(
+                                        media = media,
+                                        downloadProgress = uiState.downloadingMedia[media.id],
+                                        isSelectionMode = isSelectionMode,
+                                        isSelected = media.id in uiState.selectedIds,
+                                        onClick = {
+                                            if (isSelectionMode) {
+                                                viewModel.toggleSelection(media.id)
+                                            } else {
+                                                onMediaClick(media)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            if (isSelectionMode) {
+                                                viewModel.toggleSelection(media.id)
+                                            } else {
+                                                viewModel.startSelection(media.id)
+                                            }
                                         }
-                                    },
-                                    onLongClick = {
-                                        if (isSelectionMode) {
-                                            viewModel.toggleSelection(media.id)
-                                        } else {
-                                            viewModel.startSelection(media.id)
+                                    )
+                                }
+                            }
+                        } else {
+                            LazyVerticalGrid(
+                                columns = GridCells.Adaptive(minSize = 110.dp),
+                                contentPadding = PaddingValues(2.dp)
+                            ) {
+                                items(uiState.medias, key = { it.id }) { media ->
+                                    MediaGridItem(
+                                        media = media,
+                                        downloadProgress = uiState.downloadingMedia[media.id],
+                                        isGeneratingThumbnail = uiState.generatingThumbnail[media.id],
+                                        isSelectionMode = isSelectionMode,
+                                        isSelected = media.id in uiState.selectedIds,
+                                        onClick = {
+                                            if (isSelectionMode) {
+                                                viewModel.toggleSelection(media.id)
+                                            } else {
+                                                onMediaClick(media)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            if (isSelectionMode) {
+                                                viewModel.toggleSelection(media.id)
+                                            } else {
+                                                viewModel.startSelection(media.id)
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                     }
