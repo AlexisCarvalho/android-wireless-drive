@@ -21,12 +21,11 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
-import okio.source
 import java.io.IOException
 
 sealed class UploadStatus {
     data object Pending : UploadStatus()
-    data object Uploading : UploadStatus()
+    data class Uploading(val progress: Int = 0) : UploadStatus()
     data object Success : UploadStatus()
     data class Error(val message: String) : UploadStatus()
 }
@@ -47,7 +46,8 @@ data class UploadUiState(
 class InputStreamRequestBody(
     private val contentResolver: ContentResolver,
     private val uri: Uri,
-    private val mediaType: MediaType?
+    private val mediaType: MediaType?,
+    private val onProgress: (bytesWritten: Long, totalBytes: Long) -> Unit = { _, _ -> }
 ) : RequestBody() {
 
     override fun contentType(): MediaType? = mediaType
@@ -59,11 +59,19 @@ class InputStreamRequestBody(
     }
 
     override fun writeTo(sink: BufferedSink) {
+        val total = contentLength()
         val input = contentResolver.openInputStream(uri)
             ?: throw IOException("Não foi possível abrir o arquivo")
 
-        input.use {
-            sink.writeAll(it.source())
+        input.use { stream ->
+            val buffer = ByteArray(8192)
+            var bytesWritten = 0L
+            var read: Int
+            while (stream.read(buffer).also { read = it } != -1) {
+                sink.write(buffer, 0, read)
+                bytesWritten += read
+                onProgress(bytesWritten, total)
+            }
         }
     }
 }
@@ -95,7 +103,7 @@ class UploadViewModel(
 
             for (item in state.items) {
                 if (item.status is UploadStatus.Success) continue
-                updateStatus(item.uri, UploadStatus.Uploading)
+                updateStatus(item.uri, UploadStatus.Uploading(0))
                 val result = uploadSingle(item)
                 updateStatus(item.uri, result)
             }
@@ -110,11 +118,20 @@ class UploadViewModel(
 
             val title = item.displayName.substringBeforeLast('.', item.displayName)
 
+            var lastPercent = -1
             val requestBody = InputStreamRequestBody(
                 contentResolver = contentResolver,
                 uri = item.uri,
                 mediaType = mimeType.toMediaTypeOrNull()
-            )
+            ) { bytesWritten, totalBytes ->
+                if (totalBytes > 0) {
+                    val percent = ((bytesWritten * 100) / totalBytes).toInt()
+                    if (percent != lastPercent) {
+                        lastPercent = percent
+                        updateStatus(item.uri, UploadStatus.Uploading(percent))
+                    }
+                }
+            }
 
             val filePart = MultipartBody.Part.createFormData(
                 "file",

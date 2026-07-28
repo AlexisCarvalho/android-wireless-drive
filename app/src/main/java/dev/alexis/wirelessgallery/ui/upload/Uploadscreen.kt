@@ -21,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -112,31 +113,40 @@ fun UploadScreen(
 
 @Composable
 private fun UploadItemRow(item: UploadItem, removable: Boolean, onRemove: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(item.displayName, maxLines = 1)
-            Text(
-                text = "${"%.2f".format(item.sizeBytes / 1024.0 / 1024.0)} MB · ${statusLabel(item.status)}",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-        if (removable) {
-            IconButton(onClick = onRemove) {
-                Icon(Icons.Filled.Close, contentDescription = "Remover")
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(item.displayName, maxLines = 1)
+                Text(
+                    text = "${"%.2f".format(item.sizeBytes / 1024.0 / 1024.0)} MB · ${statusLabel(item.status)}",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
+            if (removable) {
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Filled.Close, contentDescription = "Remover")
+                }
+            }
+        }
+
+        val status = item.status
+        if (status is UploadStatus.Uploading) {
+            Spacer(modifier = Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = { status.progress / 100f },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
 
 private fun statusLabel(status: UploadStatus): String = when (status) {
     UploadStatus.Pending -> "Aguardando"
-    UploadStatus.Uploading -> "Enviando..."
+    is UploadStatus.Uploading -> "Enviando... ${status.progress}%"
     UploadStatus.Success -> "Enviado ✓"
     is UploadStatus.Error -> "Erro: ${status.message}"
 }
