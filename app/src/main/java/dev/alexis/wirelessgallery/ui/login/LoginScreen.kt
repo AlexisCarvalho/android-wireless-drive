@@ -58,7 +58,7 @@ fun LoginScreen(
                 Text(text = "Perfis salvos", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(uiState.savedProfiles) { profile ->
+                    items(uiState.savedProfiles, key = { it.code }) { profile ->
                         SavedProfileChip(
                             profile = profile,
                             onClick = {
@@ -140,7 +140,7 @@ private fun SavedProfileChip(
     onLongClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier.pointerInput(Unit) {
+        modifier = Modifier.pointerInput(profile.code) {
             detectTapGestures(
                 onTap = { onClick() },
                 onLongPress = { onLongClick() }
