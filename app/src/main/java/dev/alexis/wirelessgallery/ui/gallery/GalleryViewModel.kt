@@ -424,14 +424,13 @@ class GalleryViewModel(
         }
     }
 
-    fun updateMedia(id: Int, title: String, description: String) {
+    fun updateMedia(id: Int, title: String) {
         viewModelScope.launch {
             try {
                 val response = apiService.updateMedia(
                     id = id,
                     request = dev.alexis.wirelessgallery.data.UpdateMediaRequest(
-                        title = title,
-                        description = description.ifBlank { null }
+                        title = title
                     )
                 )
 
@@ -445,8 +444,7 @@ class GalleryViewModel(
                         val newList = state.medias.toMutableList()
 
                         newList[index] = newList[index].copy(
-                            title = title,
-                            description = description.ifBlank { null }
+                            title = title
                         )
 
                         state.copy(medias = newList)

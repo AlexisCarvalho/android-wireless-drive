@@ -123,12 +123,10 @@ class UploadViewModel(
             )
 
             val titlePart = title.toRequestBody("text/plain".toMediaTypeOrNull())
-            val descriptionPart = "".toRequestBody("text/plain".toMediaTypeOrNull())
 
             val response = apiService.uploadMedia(
                 filePart,
-                titlePart,
-                descriptionPart
+                titlePart
             )
 
             if (response.isSuccessful) {

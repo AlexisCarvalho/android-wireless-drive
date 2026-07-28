@@ -79,7 +79,6 @@ interface ApiService {
     @POST("/api/media/upload")
     suspend fun uploadMedia(
         @Part file: MultipartBody.Part,
-        @Part("title") title: RequestBody,
-        @Part("description") description: RequestBody
+        @Part("title") title: RequestBody
     ): Response<GenericResponse>
 }

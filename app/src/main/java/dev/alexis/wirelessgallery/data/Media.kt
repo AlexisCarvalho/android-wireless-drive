@@ -15,7 +15,6 @@ data class Media(
     @SerializedName("CreatedAt") val createdAt: String,
     @SerializedName("Thumbnail") val thumbnail: String?,
     @SerializedName("Filename") val filename: String?,
-    @SerializedName("Description") val description: String?
 )
 
 data class MediaListResponse(
@@ -34,8 +33,7 @@ data class RegisterRequest(
 )
 
 data class UpdateMediaRequest(
-    val title: String,
-    val description: String?
+    val title: String
 )
 
 data class AuthResponse(

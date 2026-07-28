@@ -127,9 +127,6 @@ fun GalleryScreen(
     var editingTitle by remember {
         mutableStateOf("")
     }
-    var editingDescription by remember {
-        mutableStateOf("")
-    }
 
     BackHandler(enabled = isSelectionMode) {
         viewModel.clearSelection()
@@ -157,9 +154,7 @@ fun GalleryScreen(
             uiState.medias
         } else {
             uiState.medias.filter {
-                it.title.contains(searchText, ignoreCase = true) ||
-                        it.filename.orEmpty().contains(searchText, ignoreCase = true) ||
-                        it.description.orEmpty().contains(searchText, ignoreCase = true)
+                it.title.contains(searchText, ignoreCase = true)
             }
         }
     }
@@ -266,12 +261,11 @@ fun GalleryScreen(
                                     )
 
                                     DropdownMenuItem(
-                                        text = { Text("Editar título/descrição") },
+                                        text = { Text("Editar título") },
                                         enabled = uiState.selectedIds.size == 1,
                                         onClick = {
                                             selectedMedias.singleOrNull()?.let { media ->
                                                 editingTitle = media.title
-                                                editingDescription = media.description.orEmpty()
                                             }
                                             showEditMediaDialog = true
                                             showSelectionMenu = false
@@ -342,8 +336,6 @@ fun GalleryScreen(
                                 showListView = !showListView
 
                                 if (!showListView) {
-                                    //isSearching = false
-                                    //searchText = ""
                                     keyboardController?.hide()
                                 }
 
@@ -482,12 +474,6 @@ fun GalleryScreen(
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
-                            OutlinedTextField(
-                                value = editingDescription,
-                                onValueChange = { editingDescription = it },
-                                label = { Text("Descrição") },
-                                modifier = Modifier.fillMaxWidth()
-                            )
                         }
                     },
                     confirmButton = {
@@ -496,8 +482,7 @@ fun GalleryScreen(
                                 selectedMedias.singleOrNull()?.let { media ->
                                     viewModel.updateMedia(
                                         id = media.id,
-                                        title = editingTitle.trim(),
-                                        description = editingDescription.trim()
+                                        title = editingTitle.trim()
                                     )
                                 }
                                 showEditMediaDialog = false
