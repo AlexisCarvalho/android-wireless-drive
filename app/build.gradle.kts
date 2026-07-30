@@ -4,13 +4,13 @@ plugins {
 }
 
 android {
-    namespace = "dev.alexis.wirelessgallery"
+    namespace = "dev.alexis.wirelessdrive"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "dev.alexis.wirelessgallery"
+        applicationId = "dev.alexis.wirelessdrive"
         minSdk = 29
         targetSdk = 36
         versionCode = 1

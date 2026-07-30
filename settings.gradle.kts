@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "WirelessGallery"
+rootProject.name = "WirelessDrive"
 include(":app")
  
