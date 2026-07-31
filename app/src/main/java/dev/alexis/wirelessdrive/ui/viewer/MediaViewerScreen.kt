@@ -64,9 +64,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
@@ -108,8 +110,11 @@ fun MediaViewerScreen(
         uiState.localVideoUri?.let {
 
             rememberVideoPlayer(
+                mediaKey = uiState.media?.id ?: -1,
                 uri = it,
-                token = uiState.authToken
+                token = uiState.authToken,
+                refreshVersion = uiState.playbackRefreshVersion,
+                onAuthError = { viewModel.refreshPlaybackAuth() }
             )
 
         }
@@ -117,7 +122,13 @@ fun MediaViewerScreen(
     val audioPlayer =
         uiState.localAudioUri?.let {
 
-            rememberAudioPlayer(it)
+            rememberAudioPlayer(
+                mediaKey = uiState.media?.id ?: -1,
+                uri = it,
+                token = uiState.authToken,
+                refreshVersion = uiState.playbackRefreshVersion,
+                onAuthError = { viewModel.refreshPlaybackAuth() }
+            )
 
         }
 
@@ -725,17 +736,48 @@ private fun VideoPlayer(
 
 }
 
+/**
+ * True if this error was caused by ExoPlayer failing to open a new HTTP
+ * connection with a 401 or 403 -- e.g. the access token expired mid-playback,
+ * or the user seeked into a byte range that requires a fresh connection and
+ * the token had already expired by then.
+ */
+private fun isAuthError(error: PlaybackException): Boolean {
+    var cause: Throwable? = error
+    while (cause != null) {
+        if (cause is HttpDataSource.InvalidResponseCodeException &&
+            (cause.responseCode == 401 || cause.responseCode == 403)
+        ) {
+            return true
+        }
+        cause = cause.cause
+    }
+    return false
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 private fun rememberVideoPlayer(
+    mediaKey: Int,
     uri: Uri,
-    token: String?
+    token: String?,
+    refreshVersion: Int,
+    onAuthError: () -> Unit
 ): ExoPlayer {
 
     val context = LocalContext.current
 
-    val dataSourceFactory = remember(token) {
-        DefaultHttpDataSource.Factory().apply {
+    val player = remember(mediaKey) {
+        ExoPlayer.Builder(context)
+            .build()
+            .apply {
+                playWhenReady = true
+            }
+    }
+
+    LaunchedEffect(player, uri, token, refreshVersion) {
+
+        val dataSourceFactory = DefaultHttpDataSource.Factory().apply {
             token?.let {
                 setDefaultRequestProperties(
                     mapOf(
@@ -744,30 +786,41 @@ private fun rememberVideoPlayer(
                 )
             }
         }
+
+        val resumePosition = player.currentPosition.coerceAtLeast(0L)
+        val wasPlaying = player.playWhenReady
+
+        val mediaSource =
+            ProgressiveMediaSource.Factory(dataSourceFactory)
+                .createMediaSource(
+                    MediaItem.fromUri(uri)
+                )
+
+        player.setMediaSource(mediaSource, resumePosition)
+        player.prepare()
+        player.playWhenReady = wasPlaying
+
     }
 
-    val player = remember(uri, token) {
+    DisposableEffect(player, onAuthError) {
 
-        ExoPlayer.Builder(context)
-            .build()
-            .apply {
-
-                val mediaSource =
-                    ProgressiveMediaSource.Factory(dataSourceFactory)
-                        .createMediaSource(
-                            MediaItem.fromUri(uri)
-                        )
-
-                setMediaSource(mediaSource)
-
-                prepare()
-
-                playWhenReady = true
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                if (isAuthError(error)) {
+                    onAuthError()
+                }
             }
+        }
+
+        player.addListener(listener)
+
+        onDispose {
+            player.removeListener(listener)
+        }
 
     }
 
-    DisposableEffect(player) {
+    DisposableEffect(mediaKey) {
 
         onDispose {
             player.release()
@@ -778,32 +831,72 @@ private fun rememberVideoPlayer(
     return player
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun rememberAudioPlayer(
-    uri: Uri
+    mediaKey: Int,
+    uri: Uri,
+    token: String?,
+    refreshVersion: Int,
+    onAuthError: () -> Unit
 ): ExoPlayer {
 
     val context = LocalContext.current
 
-    val player = remember(uri) {
-
+    val player = remember(mediaKey) {
         ExoPlayer.Builder(context)
             .build()
             .apply {
+                playWhenReady = true
+            }
+    }
 
-                setMediaItem(
+    LaunchedEffect(player, uri, token, refreshVersion) {
+
+        val dataSourceFactory = DefaultHttpDataSource.Factory().apply {
+            token?.let {
+                setDefaultRequestProperties(
+                    mapOf(
+                        "Authorization" to "Bearer $it"
+                    )
+                )
+            }
+        }
+
+        val resumePosition = player.currentPosition.coerceAtLeast(0L)
+        val wasPlaying = player.playWhenReady
+
+        val mediaSource =
+            ProgressiveMediaSource.Factory(dataSourceFactory)
+                .createMediaSource(
                     MediaItem.fromUri(uri)
                 )
 
-                prepare()
-
-                playWhenReady = true
-
-            }
+        player.setMediaSource(mediaSource, resumePosition)
+        player.prepare()
+        player.playWhenReady = wasPlaying
 
     }
 
-    DisposableEffect(player) {
+    DisposableEffect(player, onAuthError) {
+
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                if (isAuthError(error)) {
+                    onAuthError()
+                }
+            }
+        }
+
+        player.addListener(listener)
+
+        onDispose {
+            player.removeListener(listener)
+        }
+
+    }
+
+    DisposableEffect(mediaKey) {
 
         onDispose {
             player.release()

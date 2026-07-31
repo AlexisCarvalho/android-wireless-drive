@@ -5,6 +5,7 @@ import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.alexis.wirelessdrive.data.Media
+import dev.alexis.wirelessdrive.data.SessionManager
 import dev.alexis.wirelessdrive.data.TokenManager
 import dev.alexis.wirelessdrive.network.ApiConfig
 import dev.alexis.wirelessdrive.network.ApiService
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 import java.io.File
 
 // ByteArray in a data class causes the compiler to warn about the default
@@ -29,12 +31,17 @@ data class MediaViewerUiState(
     val imageBytes: ByteArray? = null,
     val authToken: String? = null,
     val canGoToPrevious: Boolean = false,
-    val canGoToNext: Boolean = false
+    val canGoToNext: Boolean = false,
+    // Needed because the resolved URI can
+    // be textually identical to the previous one, so UI code that keys off the
+    // URI alone wouldn't notice anything changed.
+    val playbackRefreshVersion: Int = 0
 )
 
 class MediaViewerViewModel(
     private val apiService: ApiService,
     private val tokenManager: TokenManager,
+    private val sessionManager: SessionManager,
     private val cacheDir: File,
     private val mediaId: Int
 ) : ViewModel() {
@@ -46,6 +53,7 @@ class MediaViewerViewModel(
     private var availableMediaIds: List<Int> = emptyList()
     private var currentMediaIndex = -1
     private var currentMediaType = ""
+    private var isRefreshingPlaybackAuth = false
 
     init {
         loadMedia()
@@ -70,6 +78,10 @@ class MediaViewerViewModel(
                 val media = detailResponse.body()
 
                 if (!detailResponse.isSuccessful || media == null) {
+                    if (sessionManager.handleAuthFailure(detailResponse.code())) {
+                        return@launch
+                    }
+
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -80,6 +92,11 @@ class MediaViewerViewModel(
                 }
 
                 val mediasResponse = apiService.getMedias()
+                if (!mediasResponse.isSuccessful &&
+                    sessionManager.handleAuthFailure(mediasResponse.code())
+                ) {
+                    return@launch
+                }
                 val medias = mediasResponse.body()?.medias.orEmpty()
 
                 when (media.type) {
@@ -108,7 +125,20 @@ class MediaViewerViewModel(
 
                 when (media.type) {
                     "video" -> {
-                        val streamUri = resolvePlaybackUri(media.id)
+                        val streamUri = try {
+                            resolvePlaybackUri(media.id)
+                        } catch (e: HttpException) {
+                            if (sessionManager.handleAuthFailure(e.code())) {
+                                return@launch
+                            }
+                            _uiState.update {
+                                it.copy(
+                                    isLoading = false,
+                                    errorMessage = "Não foi possível carregar o vídeo"
+                                )
+                            }
+                            return@launch
+                        }
 
                         _uiState.update {
                             it.copy(
@@ -123,7 +153,20 @@ class MediaViewerViewModel(
                     }
 
                     "audio" -> {
-                        val streamUri = resolvePlaybackUri(media.id)
+                        val streamUri = try {
+                            resolvePlaybackUri(media.id)
+                        } catch (e: HttpException) {
+                            if (sessionManager.handleAuthFailure(e.code())) {
+                                return@launch
+                            }
+                            _uiState.update {
+                                it.copy(
+                                    isLoading = false,
+                                    errorMessage = "Não foi possível carregar o áudio"
+                                )
+                            }
+                            return@launch
+                        }
 
                         _uiState.update {
                             it.copy(
@@ -143,6 +186,10 @@ class MediaViewerViewModel(
                         val body = fileResponse.body()
 
                         if (!fileResponse.isSuccessful || body == null) {
+                            if (sessionManager.handleAuthFailure(fileResponse.code())) {
+                                return@launch
+                            }
+
                             _uiState.update {
                                 it.copy(
                                     isLoading = false,
@@ -179,6 +226,50 @@ class MediaViewerViewModel(
         }
     }
 
+    /**
+     * Re-resolves the stream URL (and current auth token) for the media that's
+     * currently playing, without touching `media`, the position in the
+     * playlist, or the loading/error state.
+     *
+     * Call this when ExoPlayer fails to open a new HTTP connection with a
+     * 401/403 -- which happens both when the access token has simply expired
+     * mid-playback, and when the user seeks into a byte range that hasn't been
+     * downloaded yet and the token expired in the meantime.
+     */
+    fun refreshPlaybackAuth() {
+        if (isRefreshingPlaybackAuth) return
+        val media = _uiState.value.media ?: return
+        if (media.type != "video" && media.type != "audio") return
+
+        isRefreshingPlaybackAuth = true
+        viewModelScope.launch {
+            try {
+                if (!tokenManager.isLoggedIn()) {
+                    return@launch
+                }
+
+                val streamUri = resolvePlaybackUri(media.id)
+                val token = tokenManager.getTokenSync()
+
+                _uiState.update {
+                    it.copy(
+                        authToken = token,
+                        localVideoUri = if (media.type == "video") streamUri else it.localVideoUri,
+                        localAudioUri = if (media.type == "audio") streamUri else it.localAudioUri,
+                        playbackRefreshVersion = it.playbackRefreshVersion + 1
+                    )
+                }
+            } catch (e: HttpException) {
+                sessionManager.handleAuthFailure(e.code())
+            } catch (_: Exception) {
+                // Transient/network failure: best-effort, the next
+                // 401/403 from ExoPlayer will trigger another attempt.
+            } finally {
+                isRefreshingPlaybackAuth = false
+            }
+        }
+    }
+
     fun goToPreviousMedia() {
         if (currentMediaIndex < 0) return
         val previousMediaId = availableMediaIds.getOrNull(currentMediaIndex + 1)
@@ -192,16 +283,14 @@ class MediaViewerViewModel(
     }
 
     private suspend fun resolvePlaybackUri(mediaId: Int): Uri {
-        val streamResponse = runCatching {
-            apiService.getMediaStreamUrl(mediaId)
-        }.getOrNull()
+        val streamResponse = apiService.getMediaStreamUrl(mediaId)
 
-        val endpoint = streamResponse
-            ?.takeIf { it.isSuccessful }
-            ?.body()
-            ?.url
-            ?.takeIf { it.isNotBlank() }
-            ?: "/api/media/$mediaId/file"
+        if (!streamResponse.isSuccessful) {
+            throw HttpException(streamResponse)
+        }
+
+        val endpoint = streamResponse.body()?.url?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("URL de stream vazia")
 
         return "${ApiConfig.BASE_URL}$endpoint".toUri()
     }

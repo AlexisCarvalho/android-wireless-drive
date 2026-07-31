@@ -8,17 +8,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.alexis.wirelessdrive.data.GenerateThumbnailResponse
 import dev.alexis.wirelessdrive.data.Media
-import dev.alexis.wirelessdrive.data.TokenManager
+import dev.alexis.wirelessdrive.data.SessionManager
 import dev.alexis.wirelessdrive.network.ApiService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -61,25 +58,12 @@ data class GalleryUiState(
 
 class GalleryViewModel(
     private val apiService: ApiService,
-    private val tokenManager: TokenManager,
+    private val sessionManager: SessionManager,
     private val application: Application
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(GalleryUiState())
     val uiState: StateFlow<GalleryUiState> = _uiState.asStateFlow()
-
-    private val _sessionExpired = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val sessionExpired: SharedFlow<Unit> = _sessionExpired.asSharedFlow()
-
-    private suspend fun handleAuthFailure(responseCode: Int): Boolean {
-        return if (responseCode == 401 || responseCode == 403) {
-            tokenManager.clearToken()
-            _sessionExpired.emit(Unit)
-            true
-        } else {
-            false
-        }
-    }
 
     fun startSelection(id: Int) {
         _uiState.update { it.copy(selectedIds = setOf(id)) }
@@ -115,7 +99,7 @@ class GalleryViewModel(
             val response = apiService.generateThumbnail(id)
 
             if (!response.isSuccessful) {
-                if (handleAuthFailure(response.code())) {
+                if (sessionManager.handleAuthFailure(response.code())) {
                     throw CancellationException()
                 }
 
@@ -233,7 +217,7 @@ class GalleryViewModel(
                 val response = apiService.getMissingThumbnails()
 
                 if (!response.isSuccessful) {
-                    if (handleAuthFailure(response.code())) {
+                    if (sessionManager.handleAuthFailure(response.code())) {
                         _uiState.update { it.copy(batchProgress = null) }
                         return@launch
                     }
@@ -278,7 +262,7 @@ class GalleryViewModel(
             if (response.isSuccessful) {
                 true
             } else {
-                if (!handleAuthFailure(response.code())) {
+                if (!sessionManager.handleAuthFailure(response.code())) {
                     _uiState.update {
                         it.copy(errorMessage = "Erro ao deletar thumbnail")
                     }
@@ -355,7 +339,7 @@ class GalleryViewModel(
             if (response.isSuccessful) {
                 true
             } else {
-                if (!handleAuthFailure(response.code())) {
+                if (!sessionManager.handleAuthFailure(response.code())) {
                     _uiState.update {
                         it.copy(errorMessage = "Erro ao deletar mídia")
                     }
@@ -450,7 +434,7 @@ class GalleryViewModel(
                         state.copy(medias = newList)
                     }
                 } else {
-                    if (handleAuthFailure(response.code())) {
+                    if (sessionManager.handleAuthFailure(response.code())) {
                         return@launch
                     }
                     _uiState.update {
@@ -478,7 +462,7 @@ class GalleryViewModel(
                 val streamUrlResponse = apiService.getMediaStreamUrl(media.id, type = "download")
 
                 if (!streamUrlResponse.isSuccessful) {
-                    if (handleAuthFailure(streamUrlResponse.code())) {
+                    if (sessionManager.handleAuthFailure(streamUrlResponse.code())) {
                         throw CancellationException()
                     }
                     throw Exception("Erro HTTP ${streamUrlResponse.code()}")
@@ -490,7 +474,7 @@ class GalleryViewModel(
                 val response = apiService.downloadFromUrl(downloadUrl)
 
                 if (!response.isSuccessful) {
-                    if (handleAuthFailure(response.code())) {
+                    if (sessionManager.handleAuthFailure(response.code())) {
                         throw CancellationException()
                     }
                     throw Exception("Erro HTTP ${response.code()}")
@@ -635,7 +619,7 @@ class GalleryViewModel(
                     .sortedByDescending { it.createdAt }
                 _uiState.update { it.copy(medias = medias, isLoading = false, isRefreshing = false) }
             } else {
-                if (handleAuthFailure(response.code())) {
+                if (sessionManager.handleAuthFailure(response.code())) {
                     _uiState.update { it.copy(isLoading = false, isRefreshing = false) }
                     return
                 }

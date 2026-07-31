@@ -143,12 +143,6 @@ fun GalleryScreen(
         viewModel.loadMedias()
     }
 
-    LaunchedEffect(viewModel) {
-        viewModel.sessionExpired.collect {
-            onLogoutClick()
-        }
-    }
-
     val filteredMedias = remember(uiState.medias, searchText) {
         if (searchText.isBlank()) {
             uiState.medias

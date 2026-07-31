@@ -1,6 +1,7 @@
 package dev.alexis.wirelessdrive
 
 import android.content.Context
+import dev.alexis.wirelessdrive.data.SessionManager
 import dev.alexis.wirelessdrive.data.TokenManager
 import dev.alexis.wirelessdrive.network.ApiService
 import dev.alexis.wirelessdrive.network.RetrofitClient
@@ -13,4 +14,5 @@ import dev.alexis.wirelessdrive.network.RetrofitClient
 class AppContainer(context: Context) {
     val tokenManager: TokenManager = TokenManager(context.applicationContext)
     val apiService: ApiService by lazy { RetrofitClient.getInstance(tokenManager) }
+    val sessionManager: SessionManager by lazy { SessionManager(tokenManager) }
 }

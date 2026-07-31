@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -85,6 +86,20 @@ fun WirelessDriveApp() {
     val startDestination =
         if (container.tokenManager.isLoggedIn()) "gallery" else "login"
 
+    // Single, app-wide reaction to "the session just became invalid" --
+    // any ViewModel anywhere can report an auth failure to
+    // container.sessionManager, and it lands here regardless of which
+    // screen the user was on, clearing the whole back stack and dropping
+    // them on the login screen.
+    LaunchedEffect(container.sessionManager) {
+        container.sessionManager.sessionExpired.collect {
+            navController.navigate("login") {
+                popUpTo(navController.graph.id) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -131,7 +146,7 @@ fun WirelessDriveApp() {
                         initializer {
                             GalleryViewModel(
                                 container.apiService,
-                                container.tokenManager,
+                                container.sessionManager,
                                 application
                             )
                         }
@@ -151,12 +166,7 @@ fun WirelessDriveApp() {
                     },
                     onLogoutClick = {
                         scope.launch {
-                            container.tokenManager.clearToken()
-                        }
-
-                        navController.navigate("login") {
-                            popUpTo("gallery") { inclusive = true }
-                            launchSingleTop = true
+                            container.sessionManager.logout()
                         }
                     }
                 )
@@ -203,6 +213,7 @@ fun WirelessDriveApp() {
                                 MediaViewerViewModel(
                                     container.apiService,
                                     container.tokenManager,
+                                    container.sessionManager,
                                     context.cacheDir,
                                     mediaId
                                 )
