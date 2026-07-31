@@ -177,7 +177,7 @@ fun GalleryScreen(
                         }
 
                         else -> {
-                            Text("Mídias")
+                            Text("Arquivos")
                         }
                     }
 
@@ -225,7 +225,7 @@ fun GalleryScreen(
                             IconButton(
                                 onClick = { showDeleteMediaDialog = true }
                             ) {
-                                Icon(Icons.Default.Delete, contentDescription = "Excluir mídias")
+                                Icon(Icons.Default.Delete, contentDescription = "Excluir arquivos")
                             }
 
                             Box {
@@ -364,7 +364,7 @@ fun GalleryScreen(
                     }
                 }
 
-                uiState.errorMessage != null && uiState.medias.isEmpty() -> {
+                uiState.errorMessage != null -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -375,13 +375,13 @@ fun GalleryScreen(
                             text = uiState.errorMessage.orEmpty(),
                             color = MaterialTheme.colorScheme.error
                         )
-                        Button(onClick = { viewModel.loadMedias() }) { Text("Tentar novamente") }
+                        Button(onClick = { viewModel.loadMedias() }) { Text("Recarregar arquivos") }
                     }
                 }
 
                 uiState.medias.isEmpty() -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Sem mídias ainda")
+                        Text("Sem arquivos ainda")
                     }
                 }
 
@@ -457,7 +457,7 @@ fun GalleryScreen(
                         showEditMediaDialog = false
                     },
                     title = {
-                        Text("Editar mídia")
+                        Text("Editar arquivo")
                     },
                     text = {
                         Column {
@@ -504,15 +504,15 @@ fun GalleryScreen(
                     },
 
                     title = {
-                        Text(if (count == 1) "Excluir mídia" else "Excluir mídias")
+                        Text(if (count == 1) "Excluir arquivo" else "Excluir arquivos")
                     },
 
                     text = {
                         Text(
                             if (count == 1)
-                                "Tem certeza que deseja excluir esta mídia?"
+                                "Tem certeza que deseja excluir este arquivo?"
                             else
-                                "Tem certeza que deseja excluir estas $count mídias?"
+                                "Tem certeza que deseja excluir estes $count arquivos?"
                         )
                     },
 
@@ -560,9 +560,9 @@ fun GalleryScreen(
                     text = {
                         Text(
                             if (count == 1)
-                                "Deseja remover o thumbnail desta mídia?"
+                                "Deseja remover o thumbnail deste arquivo?"
                             else
-                                "Deseja remover o thumbnail destas $count mídias?"
+                                "Deseja remover o thumbnail destes $count arquivos?"
                         )
                     },
 

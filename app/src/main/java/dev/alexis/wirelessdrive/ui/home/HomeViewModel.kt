@@ -341,7 +341,7 @@ class GalleryViewModel(
             } else {
                 if (!sessionManager.handleAuthFailure(response.code())) {
                     _uiState.update {
-                        it.copy(errorMessage = "Erro ao deletar mídia")
+                        it.copy(errorMessage = "Erro ao deletar arquivo")
                     }
                 }
                 false
@@ -399,9 +399,9 @@ class GalleryViewModel(
                     selectedIds = state.selectedIds - idsSet,
                     errorMessage = state.errorMessage ?: if (failures.get() > 0) {
                         if (ids.size == 1)
-                            "Não foi possível excluir a mídia"
+                            "Não foi possível excluir o arquivo"
                         else
-                            "Algumas mídias não puderam ser excluídas"
+                            "Alguns arquivos não puderam ser excluídos"
                     } else null
                 )
             }
@@ -438,7 +438,7 @@ class GalleryViewModel(
                         return@launch
                     }
                     _uiState.update {
-                        it.copy(errorMessage = "Erro ao editar mídia")
+                        it.copy(errorMessage = "Erro ao editar arquivo")
                     }
                 }
             } catch (e: Exception) {
@@ -624,7 +624,7 @@ class GalleryViewModel(
                     return
                 }
                 _uiState.update {
-                    it.copy(isLoading = false, isRefreshing = false, errorMessage = "Erro ao carregar mídias")
+                    it.copy(isLoading = false, isRefreshing = false, errorMessage = "Erro ao carregar arquivos")
                 }
             }
         } catch (e: Exception) {
