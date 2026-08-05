@@ -54,6 +54,7 @@ class MediaViewerViewModel(
     private var currentMediaIndex = -1
     private var currentMediaType = ""
     private var isRefreshingPlaybackAuth = false
+    private var cachedMedias: List<Media>? = null
 
     init {
         loadMedia()
@@ -91,13 +92,7 @@ class MediaViewerViewModel(
                     return@launch
                 }
 
-                val mediasResponse = apiService.getMedias()
-                if (!mediasResponse.isSuccessful &&
-                    sessionManager.handleAuthFailure(mediasResponse.code())
-                ) {
-                    return@launch
-                }
-                val medias = mediasResponse.body()?.medias.orEmpty()
+                val medias = getMediaListCached() ?: return@launch
 
                 when (media.type) {
                     "video" -> {
@@ -280,6 +275,37 @@ class MediaViewerViewModel(
         if (currentMediaIndex < 0) return
         val nextMediaId = availableMediaIds.getOrNull(currentMediaIndex - 1)
         nextMediaId?.let { loadMedia(it) }
+    }
+
+    /**
+     * Returns the full media list, fetching it from the network only the
+     * first time it's needed and reusing it afterwards. Returns null if the
+     * request failed due to an expired session (already handled by
+     * [SessionManager.handleAuthFailure] -- the caller should just
+     * `return@launch`). Any other failure falls back to an empty list.
+     */
+    private suspend fun getMediaListCached(): List<Media>? {
+        cachedMedias?.let { return it }
+
+        val mediasResponse = apiService.getMedias()
+        if (!mediasResponse.isSuccessful) {
+            if (sessionManager.handleAuthFailure(mediasResponse.code())) {
+                return null
+            }
+            return emptyList()
+        }
+
+        val medias = mediasResponse.body()?.medias.orEmpty()
+        cachedMedias = medias
+        return medias
+    }
+
+    /**
+     * Forces the next call to [loadMedia] to fetch a fresh media list instead
+     * of reusing the cached one.
+     */
+    fun invalidateMediaList() {
+        cachedMedias = null
     }
 
     private suspend fun resolvePlaybackUri(mediaId: Int): Uri {

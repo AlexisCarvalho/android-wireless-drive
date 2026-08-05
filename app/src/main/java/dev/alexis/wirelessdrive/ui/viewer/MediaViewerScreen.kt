@@ -1,6 +1,8 @@
 package dev.alexis.wirelessdrive.ui.viewer
 
+import android.content.ComponentName
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -71,8 +73,12 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import com.google.common.util.concurrent.MoreExecutors
+import dev.alexis.wirelessdrive.playback.PlaybackService
 import kotlinx.coroutines.delay
 import kotlin.math.max
 import kotlin.math.min
@@ -122,15 +128,24 @@ fun MediaViewerScreen(
     val audioPlayer =
         uiState.localAudioUri?.let {
 
-            rememberAudioPlayer(
+            rememberAudioController(
                 mediaKey = uiState.media?.id ?: -1,
                 uri = it,
-                token = uiState.authToken,
                 refreshVersion = uiState.playbackRefreshVersion,
                 onAuthError = { viewModel.refreshPlaybackAuth() }
             )
 
         }
+
+    val handleBackClick: () -> Unit = {
+        audioPlayer?.let { player ->
+            player.stop()
+            player.clearMediaItems()
+        }
+        onBackClick()
+    }
+
+    BackHandler(onBack = handleBackClick)
 
     Box(
         modifier = Modifier
@@ -259,7 +274,7 @@ fun MediaViewerScreen(
                 player = it,
                 title = uiState.media?.title.orEmpty(),
                 visible = showHeader,
-                onBackClick = onBackClick,
+                onBackClick = handleBackClick,
                 canGoToPrevious = uiState.canGoToPrevious,
                 canGoToNext = uiState.canGoToNext,
                 autoplayEnabled = autoplayEnabled,
@@ -279,7 +294,7 @@ fun MediaViewerScreen(
                 player = it,
                 title = uiState.media?.title.orEmpty(),
                 visible = showHeader,
-                onBackClick = onBackClick,
+                onBackClick = handleBackClick,
                 canGoToPrevious = uiState.canGoToPrevious,
                 canGoToNext = uiState.canGoToNext,
                 autoplayEnabled = autoplayEnabled,
@@ -298,7 +313,7 @@ fun MediaViewerScreen(
             ImageOverlay(
                 title = uiState.media?.title.orEmpty(),
                 visible = showHeader,
-                onBackClick = onBackClick
+                onBackClick = handleBackClick
             )
 
         }
@@ -375,7 +390,7 @@ private fun ImageOverlay(
 
 @Composable
 private fun PlayerOverlay(
-    player: ExoPlayer,
+    player: Player,
     title: String,
     visible: Boolean,
     onBackClick: () -> Unit,
@@ -833,76 +848,56 @@ private fun rememberVideoPlayer(
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun rememberAudioPlayer(
+private fun rememberAudioController(
     mediaKey: Int,
     uri: Uri,
-    token: String?,
     refreshVersion: Int,
     onAuthError: () -> Unit
-): ExoPlayer {
-
+): Player? {
     val context = LocalContext.current
+    var controller by remember { mutableStateOf<MediaController?>(null) }
 
-    val player = remember(mediaKey) {
-        ExoPlayer.Builder(context)
-            .build()
-            .apply {
-                playWhenReady = true
-            }
-    }
+    DisposableEffect(Unit) {
+        val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
 
-    LaunchedEffect(player, uri, token, refreshVersion) {
+        controllerFuture.addListener(
+            { controller = controllerFuture.get() },
+            MoreExecutors.directExecutor()
+        )
 
-        val dataSourceFactory = DefaultHttpDataSource.Factory().apply {
-            token?.let {
-                setDefaultRequestProperties(
-                    mapOf(
-                        "Authorization" to "Bearer $it"
-                    )
-                )
-            }
+        onDispose {
+            MediaController.releaseFuture(controllerFuture)
+            controller = null
         }
-
-        val resumePosition = player.currentPosition.coerceAtLeast(0L)
-        val wasPlaying = player.playWhenReady
-
-        val mediaSource =
-            ProgressiveMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(
-                    MediaItem.fromUri(uri)
-                )
-
-        player.setMediaSource(mediaSource, resumePosition)
-        player.prepare()
-        player.playWhenReady = wasPlaying
-
     }
 
-    DisposableEffect(player, onAuthError) {
+    LaunchedEffect(controller, mediaKey, uri, refreshVersion) {
+        val player = controller ?: return@LaunchedEffect
 
+        val resumePosition =
+            if (player.currentMediaItem?.mediaId == mediaKey.toString())
+                player.currentPosition.coerceAtLeast(0L)
+            else 0L
+
+        player.setMediaItem(
+            MediaItem.Builder().setMediaId(mediaKey.toString()).setUri(uri).build(),
+            resumePosition
+        )
+        player.prepare()
+        player.playWhenReady = true
+    }
+
+    DisposableEffect(controller, onAuthError) {
+        val player = controller
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                if (isAuthError(error)) {
-                    onAuthError()
-                }
+                if (isAuthError(error)) onAuthError()
             }
         }
-
-        player.addListener(listener)
-
-        onDispose {
-            player.removeListener(listener)
-        }
-
+        player?.addListener(listener)
+        onDispose { player?.removeListener(listener) }
     }
 
-    DisposableEffect(mediaKey) {
-
-        onDispose {
-            player.release()
-        }
-
-    }
-
-    return player
+    return controller
 }
