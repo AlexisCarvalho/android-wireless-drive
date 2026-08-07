@@ -32,6 +32,8 @@ data class MediaViewerUiState(
     val authToken: String? = null,
     val canGoToPrevious: Boolean = false,
     val canGoToNext: Boolean = false,
+    val canShuffle: Boolean = false,
+    val playlist: List<Media> = emptyList(),
     // Needed because the resolved URI can
     // be textually identical to the previous one, so UI code that keys off the
     // URI alone wouldn't notice anything changed.
@@ -50,6 +52,7 @@ class MediaViewerViewModel(
     val uiState: StateFlow<MediaViewerUiState> = _uiState.asStateFlow()
 
     private var currentMediaId = mediaId
+    private var availableMedias: List<Media> = emptyList()
     private var availableMediaIds: List<Int> = emptyList()
     private var currentMediaIndex = -1
     private var currentMediaType = ""
@@ -104,17 +107,19 @@ class MediaViewerViewModel(
                     }
                 }
 
-                availableMediaIds = if (currentMediaType !== "") {
-                    medias.filter { media -> media.type == currentMediaType }.map { it.id }
+                availableMedias = if (currentMediaType !== "") {
+                    medias.filter { media -> media.type == currentMediaType }
 
                 } else {
-                    medias.map { it.id }
+                    medias
                 }
+                availableMediaIds = availableMedias.map { it.id }
                 currentMediaIndex = availableMediaIds.indexOf(requestedMediaId)
 
                 val canGoToPrevious =
                     currentMediaIndex >= 0 && currentMediaIndex < availableMediaIds.lastIndex
                 val canGoToNext = currentMediaIndex > 0
+                val canShuffle = availableMediaIds.size > 1
 
                 val token = tokenManager.getTokenSync()
 
@@ -142,7 +147,9 @@ class MediaViewerViewModel(
                                 localVideoUri = streamUri,
                                 authToken = token,
                                 canGoToPrevious = canGoToPrevious,
-                                canGoToNext = canGoToNext
+                                canGoToNext = canGoToNext,
+                                canShuffle = canShuffle,
+                                playlist = availableMedias
                             )
                         }
                     }
@@ -170,7 +177,9 @@ class MediaViewerViewModel(
                                 localAudioUri = streamUri,
                                 authToken = token,
                                 canGoToPrevious = canGoToPrevious,
-                                canGoToNext = canGoToNext
+                                canGoToNext = canGoToNext,
+                                canShuffle = canShuffle,
+                                playlist = availableMedias
                             )
                         }
                     }
@@ -277,6 +286,30 @@ class MediaViewerViewModel(
         nextMediaId?.let { loadMedia(it) }
     }
 
+    fun goToRandomMedia() {
+        if (currentMediaIndex < 0 || availableMediaIds.size <= 1) return
+        val candidateIds = availableMediaIds.filterIndexed { index, _ -> index != currentMediaIndex }
+        val randomId = candidateIds.randomOrNull() ?: return
+        loadMedia(randomId)
+    }
+
+    fun onExternalMediaChanged(mediaId: Int) {
+        if (mediaId == currentMediaId) return
+        val media = availableMedias.firstOrNull { it.id == mediaId } ?: return
+
+        currentMediaId = mediaId
+        currentMediaIndex = availableMediaIds.indexOf(mediaId)
+
+        _uiState.update {
+            it.copy(
+                media = media,
+                canGoToPrevious = currentMediaIndex >= 0 && currentMediaIndex < availableMediaIds.lastIndex,
+                canGoToNext = currentMediaIndex > 0,
+                canShuffle = availableMediaIds.size > 1
+            )
+        }
+    }
+
     /**
      * Returns the full media list, fetching it from the network only the
      * first time it's needed and reusing it afterwards. Returns null if the
@@ -295,14 +328,15 @@ class MediaViewerViewModel(
             return emptyList()
         }
 
-        val medias = mediasResponse.body()?.medias.orEmpty()
+        val medias = mediasResponse.body()?.medias.orEmpty().sortedByDescending { it.id }
         cachedMedias = medias
         return medias
     }
 
     /**
      * Forces the next call to [loadMedia] to fetch a fresh media list instead
-     * of reusing the cached one.
+     * of reusing the cached one -- e.g. if the screen is ever kept alive
+     * across an upload/delete happening elsewhere.
      */
     fun invalidateMediaList() {
         cachedMedias = null

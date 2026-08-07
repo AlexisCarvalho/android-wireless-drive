@@ -1,5 +1,6 @@
 package dev.alexis.wirelessdrive.ui.upload
 
+import android.app.Application
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -8,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.gson.Gson
 import dev.alexis.wirelessdrive.data.GenericResponse
 import dev.alexis.wirelessdrive.network.ApiService
+import dev.alexis.wirelessdrive.service.BackgroundTaskCoordinator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -78,7 +80,8 @@ class InputStreamRequestBody(
 
 class UploadViewModel(
     private val apiService: ApiService,
-    private val contentResolver: ContentResolver
+    private val contentResolver: ContentResolver,
+    private val application: Application
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(UploadUiState())
@@ -101,11 +104,16 @@ class UploadViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isUploading = true, allDone = false) }
 
-            for (item in state.items) {
-                if (item.status is UploadStatus.Success) continue
-                updateStatus(item.uri, UploadStatus.Uploading(0))
-                val result = uploadSingle(item)
-                updateStatus(item.uri, result)
+            BackgroundTaskCoordinator.begin(application, "Enviando arquivos...")
+            try {
+                for (item in state.items) {
+                    if (item.status is UploadStatus.Success) continue
+                    updateStatus(item.uri, UploadStatus.Uploading(0))
+                    val result = uploadSingle(item)
+                    updateStatus(item.uri, result)
+                }
+            } finally {
+                BackgroundTaskCoordinator.end(application)
             }
 
             _uiState.update { it.copy(isUploading = false, allDone = true) }

@@ -178,7 +178,8 @@ fun WirelessDriveApp() {
                         initializer {
                             UploadViewModel(
                                 container.apiService,
-                                context.contentResolver
+                                context.contentResolver,
+                                application
                             )
                         }
                     }

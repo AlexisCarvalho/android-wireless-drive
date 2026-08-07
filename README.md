@@ -20,6 +20,7 @@ The app declares the following Android permissions in the manifest:
 - `android.permission.INTERNET`
 - `android.permission.FOREGROUND_SERVICE`
 - `android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK`
+- `android.permission.FOREGROUND_SERVICE_DATA_SYNC`
 - `android.permission.WAKE_LOCK`
 - `android.permission.POST_NOTIFICATIONS`
 

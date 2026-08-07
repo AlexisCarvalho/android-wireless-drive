@@ -10,6 +10,7 @@ import dev.alexis.wirelessdrive.data.GenerateThumbnailResponse
 import dev.alexis.wirelessdrive.data.Media
 import dev.alexis.wirelessdrive.data.SessionManager
 import dev.alexis.wirelessdrive.network.ApiService
+import dev.alexis.wirelessdrive.service.BackgroundTaskCoordinator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -194,61 +195,73 @@ class GalleryViewModel(
         if (ids.isEmpty()) return
 
         viewModelScope.launch {
-            generateThumbnailsInternal(ids)
+            BackgroundTaskCoordinator.begin(application, "Gerando thumbnails...")
+            try {
+                generateThumbnailsInternal(ids)
+            } finally {
+                BackgroundTaskCoordinator.end(application)
+            }
         }
     }
 
     fun generateMissingThumbnails() {
         viewModelScope.launch {
 
-            _uiState.update {
-                it.copy(
-                    batchProgress = BatchProgress(
-                        BatchOperationType.GENERATE_THUMBNAIL,
-                        total = 0,
-                        completed = 0
-                    ),
-                    errorMessage = null
-                )
-            }
-
+            BackgroundTaskCoordinator.begin(application, "Gerando thumbnails...")
             try {
 
-                val response = apiService.getMissingThumbnails()
+                _uiState.update {
+                    it.copy(
+                        batchProgress = BatchProgress(
+                            BatchOperationType.GENERATE_THUMBNAIL,
+                            total = 0,
+                            completed = 0
+                        ),
+                        errorMessage = null
+                    )
+                }
 
-                if (!response.isSuccessful) {
-                    if (sessionManager.handleAuthFailure(response.code())) {
+                try {
+
+                    val response = apiService.getMissingThumbnails()
+
+                    if (!response.isSuccessful) {
+                        if (sessionManager.handleAuthFailure(response.code())) {
+                            _uiState.update { it.copy(batchProgress = null) }
+                            return@launch
+                        }
+
+                        _uiState.update {
+                            it.copy(
+                                batchProgress = null,
+                                errorMessage = "Erro ao consultar thumbnails ausentes"
+                            )
+                        }
+                        return@launch
+                    }
+
+                    val missingIds = response.body()?.medias.orEmpty().map { it.id }
+
+                    if (missingIds.isEmpty()) {
                         _uiState.update { it.copy(batchProgress = null) }
                         return@launch
                     }
 
+                    generateThumbnailsInternal(missingIds)
+
+                } catch (e: Exception) {
+
                     _uiState.update {
                         it.copy(
                             batchProgress = null,
-                            errorMessage = "Erro ao consultar thumbnails ausentes"
+                            errorMessage = "Erro ao gerar thumbnails: ${e.message.orEmpty()}"
                         )
                     }
-                    return@launch
+
                 }
 
-                val missingIds = response.body()?.medias.orEmpty().map { it.id }
-
-                if (missingIds.isEmpty()) {
-                    _uiState.update { it.copy(batchProgress = null) }
-                    return@launch
-                }
-
-                generateThumbnailsInternal(missingIds)
-
-            } catch (e: Exception) {
-
-                _uiState.update {
-                    it.copy(
-                        batchProgress = null,
-                        errorMessage = "Erro ao gerar thumbnails: ${e.message.orEmpty()}"
-                    )
-                }
-
+            } finally {
+                BackgroundTaskCoordinator.end(application)
             }
 
         }
@@ -283,50 +296,57 @@ class GalleryViewModel(
 
         viewModelScope.launch {
 
-            _uiState.update {
-                it.copy(
-                    batchProgress = BatchProgress(
-                        BatchOperationType.DELETE_THUMBNAIL,
-                        total = ids.size,
-                        completed = 0
-                    ),
-                    errorMessage = null
-                )
-            }
+            BackgroundTaskCoordinator.begin(application, "Excluindo thumbnails...")
+            try {
 
-            val failures = AtomicInteger(0)
+                _uiState.update {
+                    it.copy(
+                        batchProgress = BatchProgress(
+                            BatchOperationType.DELETE_THUMBNAIL,
+                            total = ids.size,
+                            completed = 0
+                        ),
+                        errorMessage = null
+                    )
+                }
 
-            coroutineScope {
-                ids.map { id ->
-                    async {
-                        val success = deleteThumbnailInternal(id)
-                        if (!success) failures.incrementAndGet()
+                val failures = AtomicInteger(0)
 
-                        _uiState.update { state ->
-                            val progress = state.batchProgress
-                            state.copy(
-                                batchProgress = progress?.copy(completed = progress.completed + 1)
-                            )
+                coroutineScope {
+                    ids.map { id ->
+                        async {
+                            val success = deleteThumbnailInternal(id)
+                            if (!success) failures.incrementAndGet()
+
+                            _uiState.update { state ->
+                                val progress = state.batchProgress
+                                state.copy(
+                                    batchProgress = progress?.copy(completed = progress.completed + 1)
+                                )
+                            }
                         }
-                    }
-                }.awaitAll()
-            }
+                    }.awaitAll()
+                }
 
-            loadMediasInternal()
+                loadMediasInternal()
 
-            val idsSet = ids.toSet()
+                val idsSet = ids.toSet()
 
-            _uiState.update { state ->
-                state.copy(
-                    batchProgress = null,
-                    selectedIds = state.selectedIds - idsSet,
-                    errorMessage = state.errorMessage ?: if (failures.get() > 0) {
-                        if (ids.size == 1)
-                            "Não foi possível excluir o thumbnail"
-                        else
-                            "Alguns thumbnails não puderam ser excluídos"
-                    } else null
-                )
+                _uiState.update { state ->
+                    state.copy(
+                        batchProgress = null,
+                        selectedIds = state.selectedIds - idsSet,
+                        errorMessage = state.errorMessage ?: if (failures.get() > 0) {
+                            if (ids.size == 1)
+                                "Não foi possível excluir o thumbnail"
+                            else
+                                "Alguns thumbnails não puderam ser excluídos"
+                        } else null
+                    )
+                }
+
+            } finally {
+                BackgroundTaskCoordinator.end(application)
             }
         }
     }
@@ -360,50 +380,57 @@ class GalleryViewModel(
 
         viewModelScope.launch {
 
-            _uiState.update {
-                it.copy(
-                    batchProgress = BatchProgress(
-                        BatchOperationType.DELETE_MEDIA,
-                        total = ids.size,
-                        completed = 0
-                    ),
-                    errorMessage = null
-                )
-            }
+            BackgroundTaskCoordinator.begin(application, "Excluindo arquivos...")
+            try {
 
-            val failures = AtomicInteger(0)
+                _uiState.update {
+                    it.copy(
+                        batchProgress = BatchProgress(
+                            BatchOperationType.DELETE_MEDIA,
+                            total = ids.size,
+                            completed = 0
+                        ),
+                        errorMessage = null
+                    )
+                }
 
-            coroutineScope {
-                ids.map { id ->
-                    async {
-                        val success = deleteMediaInternal(id)
-                        if (!success) failures.incrementAndGet()
+                val failures = AtomicInteger(0)
 
-                        _uiState.update { state ->
-                            val progress = state.batchProgress
-                            state.copy(
-                                batchProgress = progress?.copy(completed = progress.completed + 1)
-                            )
+                coroutineScope {
+                    ids.map { id ->
+                        async {
+                            val success = deleteMediaInternal(id)
+                            if (!success) failures.incrementAndGet()
+
+                            _uiState.update { state ->
+                                val progress = state.batchProgress
+                                state.copy(
+                                    batchProgress = progress?.copy(completed = progress.completed + 1)
+                                )
+                            }
                         }
-                    }
-                }.awaitAll()
-            }
+                    }.awaitAll()
+                }
 
-            loadMediasInternal()
+                loadMediasInternal()
 
-            val idsSet = ids.toSet()
+                val idsSet = ids.toSet()
 
-            _uiState.update { state ->
-                state.copy(
-                    batchProgress = null,
-                    selectedIds = state.selectedIds - idsSet,
-                    errorMessage = state.errorMessage ?: if (failures.get() > 0) {
-                        if (ids.size == 1)
-                            "Não foi possível excluir o arquivo"
-                        else
-                            "Alguns arquivos não puderam ser excluídos"
-                    } else null
-                )
+                _uiState.update { state ->
+                    state.copy(
+                        batchProgress = null,
+                        selectedIds = state.selectedIds - idsSet,
+                        errorMessage = state.errorMessage ?: if (failures.get() > 0) {
+                            if (ids.size == 1)
+                                "Não foi possível excluir o arquivo"
+                            else
+                                "Alguns arquivos não puderam ser excluídos"
+                        } else null
+                    )
+                }
+
+            } finally {
+                BackgroundTaskCoordinator.end(application)
             }
         }
     }
@@ -559,46 +586,53 @@ class GalleryViewModel(
 
         viewModelScope.launch {
 
-            _uiState.update {
-                it.copy(
-                    batchProgress = BatchProgress(
-                        BatchOperationType.DOWNLOAD,
-                        total = medias.size,
-                        completed = 0
-                    ),
-                    errorMessage = null
-                )
-            }
+            BackgroundTaskCoordinator.begin(application, "Baixando arquivos...")
+            try {
 
-            var failures = 0
-
-            for (media in medias) {
-
-                val success = downloadMediaInternal(media)
-
-                if (!success) failures++
-
-                _uiState.update { state ->
-                    val progress = state.batchProgress
-                    state.copy(
-                        batchProgress = progress?.copy(completed = progress.completed + 1)
+                _uiState.update {
+                    it.copy(
+                        batchProgress = BatchProgress(
+                            BatchOperationType.DOWNLOAD,
+                            total = medias.size,
+                            completed = 0
+                        ),
+                        errorMessage = null
                     )
                 }
-            }
 
-            val idsSet = medias.map { it.id }.toSet()
+                var failures = 0
 
-            _uiState.update { state ->
-                state.copy(
-                    batchProgress = null,
-                    selectedIds = state.selectedIds - idsSet,
-                    errorMessage = if (failures > 0) {
-                        if (medias.size == 1)
-                            "Não foi possível baixar o arquivo"
-                        else
-                            "Alguns arquivos não puderam ser baixados"
-                    } else null
-                )
+                for (media in medias) {
+
+                    val success = downloadMediaInternal(media)
+
+                    if (!success) failures++
+
+                    _uiState.update { state ->
+                        val progress = state.batchProgress
+                        state.copy(
+                            batchProgress = progress?.copy(completed = progress.completed + 1)
+                        )
+                    }
+                }
+
+                val idsSet = medias.map { it.id }.toSet()
+
+                _uiState.update { state ->
+                    state.copy(
+                        batchProgress = null,
+                        selectedIds = state.selectedIds - idsSet,
+                        errorMessage = if (failures > 0) {
+                            if (medias.size == 1)
+                                "Não foi possível baixar o arquivo"
+                            else
+                                "Alguns arquivos não puderam ser baixados"
+                        } else null
+                    )
+                }
+
+            } finally {
+                BackgroundTaskCoordinator.end(application)
             }
         }
     }
@@ -616,7 +650,7 @@ class GalleryViewModel(
             val response = apiService.getMedias()
             if (response.isSuccessful) {
                 val medias = response.body()?.medias.orEmpty()
-                    .sortedByDescending { it.createdAt }
+                    .sortedByDescending { it.id }
                 _uiState.update { it.copy(medias = medias, isLoading = false, isRefreshing = false) }
             } else {
                 if (sessionManager.handleAuthFailure(response.code())) {

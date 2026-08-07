@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.PlayCircleFilled
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOn
 import androidx.compose.material.icons.filled.Replay5
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -51,6 +52,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -78,7 +81,9 @@ import androidx.media3.session.SessionToken
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.google.common.util.concurrent.MoreExecutors
+import dev.alexis.wirelessdrive.data.Media
 import dev.alexis.wirelessdrive.playback.PlaybackService
+import dev.alexis.wirelessdrive.playback.placeholderUriFor
 import kotlinx.coroutines.delay
 import kotlin.math.max
 import kotlin.math.min
@@ -100,6 +105,7 @@ fun MediaViewerScreen(
         mutableIntStateOf(0)
     }
     var autoplayEnabled by remember { mutableStateOf(false) }
+    var shuffleEnabled by remember { mutableStateOf(false) }
 
     LaunchedEffect(showHeader, controlsVersion) {
 
@@ -125,17 +131,21 @@ fun MediaViewerScreen(
 
         }
 
-    val audioPlayer =
+    val audioQueueState =
         uiState.localAudioUri?.let {
 
             rememberAudioController(
-                mediaKey = uiState.media?.id ?: -1,
-                uri = it,
-                refreshVersion = uiState.playbackRefreshVersion,
+                playlist = uiState.playlist,
+                startMediaId = uiState.media?.id ?: -1,
+                autoplayEnabled = autoplayEnabled,
+                shuffleEnabled = shuffleEnabled,
+                onCurrentMediaChanged = { id -> viewModel.onExternalMediaChanged(id) },
                 onAuthError = { viewModel.refreshPlaybackAuth() }
             )
 
         }
+
+    val audioPlayer = audioQueueState?.player
 
     val handleBackClick: () -> Unit = {
         audioPlayer?.let { player ->
@@ -146,6 +156,17 @@ fun MediaViewerScreen(
     }
 
     BackHandler(onBack = handleBackClick)
+
+    val effectiveCanGoToPrevious = if (shuffleEnabled) uiState.canShuffle else uiState.canGoToPrevious
+    val effectiveCanGoToNext = if (shuffleEnabled) uiState.canShuffle else uiState.canGoToNext
+
+    val handlePreviousClick: () -> Unit = {
+        if (shuffleEnabled) viewModel.goToRandomMedia() else viewModel.goToPreviousMedia()
+    }
+
+    val handleNextClick: () -> Unit = {
+        if (shuffleEnabled) viewModel.goToRandomMedia() else viewModel.goToNextMedia()
+    }
 
     Box(
         modifier = Modifier
@@ -275,12 +296,14 @@ fun MediaViewerScreen(
                 title = uiState.media?.title.orEmpty(),
                 visible = showHeader,
                 onBackClick = handleBackClick,
-                canGoToPrevious = uiState.canGoToPrevious,
-                canGoToNext = uiState.canGoToNext,
+                canGoToPrevious = effectiveCanGoToPrevious,
+                canGoToNext = effectiveCanGoToNext,
                 autoplayEnabled = autoplayEnabled,
                 onToggleAutoplay = { autoplayEnabled = !autoplayEnabled },
-                onPreviousClick = { viewModel.goToPreviousMedia() },
-                onNextClick = { viewModel.goToNextMedia() },
+                shuffleEnabled = shuffleEnabled,
+                onToggleShuffle = { shuffleEnabled = !shuffleEnabled },
+                onPreviousClick = handlePreviousClick,
+                onNextClick = handleNextClick,
                 onUserInteraction = {
                     controlsVersion++
                 }
@@ -288,19 +311,21 @@ fun MediaViewerScreen(
 
         }
 
-        audioPlayer?.let {
+        audioPlayer?.let { player ->
 
             PlayerOverlay(
-                player = it,
+                player = player,
                 title = uiState.media?.title.orEmpty(),
                 visible = showHeader,
                 onBackClick = handleBackClick,
-                canGoToPrevious = uiState.canGoToPrevious,
-                canGoToNext = uiState.canGoToNext,
+                canGoToPrevious = audioQueueState?.hasPrevious ?: false,
+                canGoToNext = audioQueueState?.hasNext ?: false,
                 autoplayEnabled = autoplayEnabled,
                 onToggleAutoplay = { autoplayEnabled = !autoplayEnabled },
-                onPreviousClick = { viewModel.goToPreviousMedia() },
-                onNextClick = { viewModel.goToNextMedia() },
+                shuffleEnabled = shuffleEnabled,
+                onToggleShuffle = { shuffleEnabled = !shuffleEnabled },
+                onPreviousClick = { player.seekToPreviousMediaItem() },
+                onNextClick = { player.seekToNextMediaItem() },
                 onUserInteraction = {
                     controlsVersion++
                 }
@@ -398,6 +423,8 @@ private fun PlayerOverlay(
     canGoToNext: Boolean,
     autoplayEnabled: Boolean,
     onToggleAutoplay: () -> Unit,
+    shuffleEnabled: Boolean,
+    onToggleShuffle: () -> Unit,
     onPreviousClick: () -> Unit,
     onNextClick: () -> Unit,
     onUserInteraction: () -> Unit
@@ -533,6 +560,19 @@ private fun PlayerOverlay(
                         imageVector = if (autoplayEnabled) Icons.Default.RepeatOn else Icons.Default.Repeat,
                         contentDescription = null,
                         tint = if (autoplayEnabled) Color(0xFF7CFFB2) else Color.White
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        onUserInteraction()
+                        onToggleShuffle()
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Shuffle,
+                        contentDescription = "Reprodução aleatória",
+                        tint = if (shuffleEnabled) Color(0xFF7CFFB2) else Color.White
                     )
                 }
 
@@ -755,13 +795,20 @@ private fun VideoPlayer(
  * True if this error was caused by ExoPlayer failing to open a new HTTP
  * connection with a 401 or 403 -- e.g. the access token expired mid-playback,
  * or the user seeked into a byte range that requires a fresh connection and
- * the token had already expired by then.
+ * the token had already expired by then. Also covers a 401/403 from
+ * resolving the stream URL itself (see LazyResolvingDataSource), which
+ * surfaces as a retrofit2.HttpException instead.
  */
 private fun isAuthError(error: PlaybackException): Boolean {
     var cause: Throwable? = error
     while (cause != null) {
         if (cause is HttpDataSource.InvalidResponseCodeException &&
             (cause.responseCode == 401 || cause.responseCode == 403)
+        ) {
+            return true
+        }
+        if (cause is retrofit2.HttpException &&
+            (cause.code() == 401 || cause.code() == 403)
         ) {
             return true
         }
@@ -846,16 +893,35 @@ private fun rememberVideoPlayer(
     return player
 }
 
+/**
+ * Small snapshot of what the audio queue can currently do, since Compose
+ * has no way to know when ExoPlayer's own hasNextMediaItem()/
+ * hasPreviousMediaItem() change unless something explicitly observes it.
+ */
+private data class AudioQueueState(
+    val player: Player?,
+    val hasNext: Boolean,
+    val hasPrevious: Boolean
+)
+
 @OptIn(UnstableApi::class)
 @Composable
 private fun rememberAudioController(
-    mediaKey: Int,
-    uri: Uri,
-    refreshVersion: Int,
+    playlist: List<Media>,
+    startMediaId: Int,
+    autoplayEnabled: Boolean,
+    shuffleEnabled: Boolean,
+    onCurrentMediaChanged: (Int) -> Unit,
     onAuthError: () -> Unit
-): Player? {
+): AudioQueueState {
     val context = LocalContext.current
     var controller by remember { mutableStateOf<MediaController?>(null) }
+    var hasInitializedQueue by remember { mutableStateOf(false) }
+    var hasNext by remember { mutableStateOf(false) }
+    var hasPrevious by remember { mutableStateOf(false) }
+
+    val latestAutoplayEnabled by rememberUpdatedState(autoplayEnabled)
+    val latestOnCurrentMediaChanged by rememberUpdatedState(onCurrentMediaChanged)
 
     DisposableEffect(Unit) {
         val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
@@ -872,32 +938,74 @@ private fun rememberAudioController(
         }
     }
 
-    LaunchedEffect(controller, mediaKey, uri, refreshVersion) {
+    LaunchedEffect(controller, playlist) {
         val player = controller ?: return@LaunchedEffect
+        if (hasInitializedQueue || playlist.isEmpty()) return@LaunchedEffect
 
-        val resumePosition =
-            if (player.currentMediaItem?.mediaId == mediaKey.toString())
-                player.currentPosition.coerceAtLeast(0L)
-            else 0L
+        val startIndex = playlist.indexOfFirst { it.id == startMediaId }.coerceAtLeast(0)
 
-        player.setMediaItem(
-            MediaItem.Builder().setMediaId(mediaKey.toString()).setUri(uri).build(),
-            resumePosition
-        )
+        val items = playlist.map { media ->
+            MediaItem.Builder()
+                .setMediaId(media.id.toString())
+                .setUri(placeholderUriFor(media.id))
+                .setMediaMetadata(
+                    MediaMetadata.Builder().setTitle(media.title).build()
+                )
+                .build()
+        }
+
+        player.setMediaItems(items, startIndex, 0L)
+        player.shuffleModeEnabled = shuffleEnabled
         player.prepare()
         player.playWhenReady = true
+
+        hasInitializedQueue = true
+        hasNext = player.hasNextMediaItem()
+        hasPrevious = player.hasPreviousMediaItem()
     }
 
-    DisposableEffect(controller, onAuthError) {
+    LaunchedEffect(controller, shuffleEnabled) {
+        val player = controller ?: return@LaunchedEffect
+        player.shuffleModeEnabled = shuffleEnabled
+        hasNext = player.hasNextMediaItem()
+        hasPrevious = player.hasPreviousMediaItem()
+    }
+
+    DisposableEffect(controller) {
         val player = controller
+
         val listener = object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                if (isAuthError(error)) onAuthError()
+                if (isAuthError(error)) {
+                    onAuthError()
+                    player?.prepare()
+                }
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && !latestAutoplayEnabled) {
+                    player?.pause()
+                }
+
+                hasNext = player?.hasNextMediaItem() ?: false
+                hasPrevious = player?.hasPreviousMediaItem() ?: false
+
+                mediaItem?.mediaId?.toIntOrNull()?.let(latestOnCurrentMediaChanged)
+            }
+
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                hasNext = player?.hasNextMediaItem() ?: false
+                hasPrevious = player?.hasPreviousMediaItem() ?: false
             }
         }
+
         player?.addListener(listener)
         onDispose { player?.removeListener(listener) }
     }
 
-    return controller
+    return AudioQueueState(
+        player = controller,
+        hasNext = hasNext,
+        hasPrevious = hasPrevious
+    )
 }

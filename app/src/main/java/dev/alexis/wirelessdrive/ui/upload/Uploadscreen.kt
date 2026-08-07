@@ -146,7 +146,11 @@ private fun UploadItemRow(item: UploadItem, removable: Boolean, onRemove: () -> 
 
 private fun statusLabel(status: UploadStatus): String = when (status) {
     UploadStatus.Pending -> "Aguardando"
-    is UploadStatus.Uploading -> "Enviando... ${status.progress}%"
+    is UploadStatus.Uploading -> if (status.progress >= 100) {
+        "Gerando thumbnail..."
+    } else {
+        "Enviando... ${status.progress}%"
+    }
     UploadStatus.Success -> "Enviado ✓"
     is UploadStatus.Error -> "Erro: ${status.message}"
 }

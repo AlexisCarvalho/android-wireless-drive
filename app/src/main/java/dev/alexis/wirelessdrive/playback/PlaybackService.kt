@@ -18,11 +18,15 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
-        val tokenManager = (application as WirelessDriveApplication).container.tokenManager
-        val dataSourceFactory = AuthenticatingHttpDataSourceFactory(tokenManager)
+        val container = (application as WirelessDriveApplication).container
+        val tokenManager = container.tokenManager
+        val apiService = container.apiService
+
+        val authenticatingFactory = AuthenticatingHttpDataSourceFactory(tokenManager)
+        val lazyResolvingFactory = LazyResolvingDataSourceFactory(apiService, authenticatingFactory)
 
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(ProgressiveMediaSource.Factory(dataSourceFactory))
+            .setMediaSourceFactory(ProgressiveMediaSource.Factory(lazyResolvingFactory))
             .build()
             .apply {
                 setWakeMode(C.WAKE_MODE_NETWORK)
@@ -30,8 +34,8 @@ class PlaybackService : MediaSessionService() {
 
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED ||
-                    (playbackState == Player.STATE_IDLE && player.mediaItemCount == 0)) {
+                val queueExhausted = playbackState == Player.STATE_IDLE && player.mediaItemCount == 0
+                if (playbackState == Player.STATE_ENDED || queueExhausted) {
                     stopSelf()
                 }
             }
