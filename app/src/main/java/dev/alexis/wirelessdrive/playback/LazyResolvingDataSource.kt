@@ -40,7 +40,7 @@ class LazyResolvingDataSource(
                     val endpoint = response.body()?.url?.takeIf { it.isNotBlank() }
                         ?: throw IOException("URL de stream vazia para a mídia $mediaId")
 
-                    "${ApiConfig.BASE_URL}$endpoint"
+                    "${ApiConfig.baseUrl}$endpoint"
                 } catch (e: HttpException) {
                     throw IOException("Falha ao resolver URL de stream para a mídia $mediaId", e)
                 }

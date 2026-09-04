@@ -746,7 +746,7 @@ private fun MediaGridItem(
             (media.type == "image" || media.type == "video")
         ) {
             AsyncImage(
-                model = "${ApiConfig.BASE_URL}/thumbs/${media.thumbnail}",
+                model = "${ApiConfig.baseUrl}/thumbs/${media.thumbnail}",
                 contentDescription = media.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

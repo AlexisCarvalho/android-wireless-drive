@@ -352,6 +352,6 @@ class MediaViewerViewModel(
         val endpoint = streamResponse.body()?.url?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("URL de stream vazia")
 
-        return "${ApiConfig.BASE_URL}$endpoint".toUri()
+        return "${ApiConfig.baseUrl}$endpoint".toUri()
     }
 }

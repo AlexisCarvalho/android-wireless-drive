@@ -8,6 +8,8 @@ import dev.alexis.wirelessdrive.data.LoginRequest
 import dev.alexis.wirelessdrive.data.RegisterRequest
 import dev.alexis.wirelessdrive.data.SavedProfile
 import dev.alexis.wirelessdrive.data.SavedProfileManager
+import dev.alexis.wirelessdrive.data.SavedServer
+import dev.alexis.wirelessdrive.data.ServerConfigManager
 import dev.alexis.wirelessdrive.data.TokenManager
 import dev.alexis.wirelessdrive.network.ApiService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,13 +25,16 @@ data class LoginUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val savedProfiles: List<SavedProfile> = emptyList(),
-    val isRegisterMode: Boolean = false
+    val isRegisterMode: Boolean = false,
+    val savedServers: List<SavedServer> = emptyList(),
+    val activeServerName: String? = null
 )
 
 class LoginViewModel(
     private val apiService: ApiService,
     private val tokenManager: TokenManager,
-    private val savedProfileManager: SavedProfileManager
+    private val savedProfileManager: SavedProfileManager,
+    private val serverConfigManager: ServerConfigManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -37,6 +42,36 @@ class LoginViewModel(
 
     init {
         loadSavedProfiles()
+        loadSavedServers()
+    }
+
+    fun loadSavedServers() {
+        viewModelScope.launch {
+            val servers = serverConfigManager.loadServers()
+            val activeName = serverConfigManager.getActiveServerName()
+            _uiState.update { it.copy(savedServers = servers, activeServerName = activeName) }
+        }
+    }
+
+    fun addServer(name: String, url: String) {
+        viewModelScope.launch {
+            serverConfigManager.saveServer(name, url)
+            loadSavedServers()
+        }
+    }
+
+    fun selectServer(server: SavedServer) {
+        viewModelScope.launch {
+            serverConfigManager.selectServer(server)
+            loadSavedServers()
+        }
+    }
+
+    fun removeServer(server: SavedServer) {
+        viewModelScope.launch {
+            serverConfigManager.removeServer(server.name)
+            loadSavedServers()
+        }
     }
 
     fun onNameChange(value: String) {

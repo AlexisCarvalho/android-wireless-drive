@@ -124,7 +124,8 @@ fun WirelessDriveApp() {
                             LoginViewModel(
                                 container.apiService,
                                 container.tokenManager,
-                                SavedProfileManager(context.applicationContext)
+                                SavedProfileManager(context.applicationContext),
+                                container.serverConfigManager
                             )
                         }
                     }

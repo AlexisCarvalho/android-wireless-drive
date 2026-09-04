@@ -24,6 +24,7 @@ object RetrofitClient {
         }
 
         val client = OkHttpClient.Builder()
+            .addInterceptor(DynamicBaseUrlInterceptor())
             .addInterceptor(AuthInterceptor(tokenManager))
             .addInterceptor(logging)
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -31,8 +32,11 @@ object RetrofitClient {
             .writeTimeout(120, TimeUnit.SECONDS)
             .build()
 
+        val placeholderBaseUrl =
+            if (ApiConfig.baseUrl.endsWith("/")) ApiConfig.baseUrl else "${ApiConfig.baseUrl}/"
+
         return Retrofit.Builder()
-            .baseUrl(ApiConfig.BASE_URL)
+            .baseUrl(placeholderBaseUrl)
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
